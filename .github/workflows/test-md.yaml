@@ -20,6 +20,6 @@ jobs:
             node-version: 16
             cache: 'npm'
         - name: Install Dependencies
-          run: npm install js-yaml chalk fs path
+          run: npm ci
         - name: Test Frontmatter Content
           run: npm run test:frontmatter

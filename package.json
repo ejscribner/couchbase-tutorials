@@ -18,5 +18,11 @@
   "bugs": {
     "url": "https://github.com/couchbase-examples/couchbase-tutorials/issues"
   },
-  "homepage": "https://github.com/couchbase-examples/couchbase-tutorials#readme"
+  "homepage": "https://github.com/couchbase-examples/couchbase-tutorials#readme",
+  "dependencies": {
+    "chalk": "^5.2.0",
+    "fs": "^0.0.1-security",
+    "js-yaml": "^4.1.0",
+    "path": "^0.12.7"
+  }
 }
