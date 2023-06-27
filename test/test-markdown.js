@@ -1,7 +1,8 @@
-import fs from 'fs'
-import path from 'path'
-import yaml from 'js-yaml'
-import chalk from 'chalk'
+const fs = require('fs')
+const path = require('path')
+const yaml = require('js-yaml')
+const chalk = require('chalk')
+
 
 // go through every file specified directory
 

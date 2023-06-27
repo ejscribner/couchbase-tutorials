@@ -1,0 +1,22 @@
+{
+  "name": "couchbase-tutorials",
+  "version": "1.0.0",
+  "description": "Welcome to the Couchbase Tutorials repository, a comprehensive collection of markdown files designed to help you master the power and versatility of Couchbase. Please find all tutorials available at couchbase.com/developers here.",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/couchbase-examples/couchbase-tutorials.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/couchbase-examples/couchbase-tutorials/issues"
+  },
+  "homepage": "https://github.com/couchbase-examples/couchbase-tutorials#readme"
+}
