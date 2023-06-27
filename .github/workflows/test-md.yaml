@@ -1,6 +1,4 @@
-# This workflow will test the content present in markdown files and check for any corrupt index
-
-name: Build + Test Gatsby Site
+name: Markdown file check
 
 on:
   push:
@@ -12,9 +10,11 @@ on:
 
 jobs:
   build:
-    name: Test Frontmatter Content
     runs-on: ubuntu-latest
 
     steps:
-    - name: Test Frontmatter Content
-      run: npm run test:frontmatter
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Run file check
+        run: node ./test/test-markdown.js
