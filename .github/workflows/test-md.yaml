@@ -17,4 +17,4 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Run file check
-        run: node ./test/test-markdown.js
+        run: node test/test-markdown.js
