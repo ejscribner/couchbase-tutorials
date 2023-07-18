@@ -1,17 +1,12 @@
-name: Markdown file check
+name: Test Frontmatter Content
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
         - uses: actions/checkout@v2
         - name: Use Node.js 16
@@ -21,5 +16,5 @@ jobs:
             cache: 'npm'
         - name: Install Dependencies
           run: npm ci
-        - name: Test Markdown Content
-          run: npm run test:markdown
+        - name: Test Frontmatter Content
+          run: npm run test:frontmatter
