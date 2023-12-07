@@ -1,10 +1,10 @@
 ---
 # frontmatter
-path: "/tutorial-quickstart-flask-python"
-title: Quickstart in Couchbase with Python and Flask
-short_title: Python and Flask
+path: "/tutorial-quickstart-fastapi-python"
+title: Quickstart in Couchbase with Python and FastAPI
+short_title: Python and FastAPI
 description:
-  - Learn to build a REST API in Python using Flask and Couchbase
+  - Learn to build a REST API in Python using FastAPI and Couchbase
   - See how you can fetch data from Couchbase using SQL++ queries
   - Explore CRUD operations in action with Couchbase
 content_type: quickstart
@@ -14,7 +14,7 @@ technology:
   - index
   - query
 tags:
-  - Flask
+  - FastAPI
   - REST API
 sdk_language:
   - python
@@ -40,35 +40,21 @@ To run this prebuilt project, you will need:
 
 > Note that this tutorial is designed to work with the latest Python SDK (4.x) for Couchbase. It will not work with the older Python SDK for Couchbase without adapting the code.
 
-### Couchbase Capella Configuration
-
-When running Couchbase using [Capella](https://cloud.couchbase.com/), the following prerequisites need to be met.
-
-- The application requires the travel-sample bucket to be [loaded](https://docs.couchbase.com/cloud/clusters/data-service/import-data-documents.html#import-sample-data) in the cluster from the Capella UI.
-- Create the [database credentials](https://docs.couchbase.com/cloud/clusters/manage-database-users.html) to access the travel-sample bucket (Read and Write) used in the application.
-- [Allow access](https://docs.couchbase.com/cloud/clusters/allow-ip-address.html) to the Cluster from the IP on which the application is running.
-
 ## App Setup
 
 ### Cloning Repo
 
 ```shell
-git clone https://github.com/couchbase-examples/python-quickstart.git
+git clone https://github.com/couchbase-examples/python-quickstart-fastapi.git
 ```
 
 ### Install Dependencies
 
-The dependencies for the application are specified in the `requirements.txt` file in the source folder. Dependencies can be installed through `pip` the default package manager for Python.
+Any dependencies should be installed through `pip`, the default package manager for Python.
 
 ```shell
-python -m pip install -r src/requirements.txt
+python -m pip install -r requirements.txt
 ```
-
-> Note: Python SDKs older than version 4.1.9 require OpenSSL v1.1. This might not be the default in some newer platforms. In such scenarios, please install the SDK without using the prebuilt wheels
-
-> `python -m pip install couchbase --no-binary couchbase`
-
-> Refer to the [instructions in the SDK](https://github.com/couchbase/couchbase-python-client#alternative-installation-methods) for more info.
 
 ### Setup Database Configuration
 
@@ -100,11 +86,10 @@ At this point, we have installed the dependencies, loaded the travel-sample data
 The application will run on port 8080 of your local machine (http://localhost:8080). You will find the Swagger documentation of the API which you can use to try the API endpoints.
 
 ```shell
-cd src
-python app.py
+uvicorn app.main:app --reload
 ```
 
-### Using Docker
+#### Using Docker
 
 If you prefer to run this quick start using Docker, we have provided the Dockerfile which you can use to build the image and run the API as a container.
 
@@ -112,18 +97,16 @@ If you prefer to run this quick start using Docker, we have provided the Dockerf
 
 ```sh
 cd src
-docker build -t couchbase-flask-quickstart .
+docker build -t couchbase-fastapi-quickstart .
 ```
 
 - Run the Docker image
 
 ```sh
-docker run -it --env-file .env -p 8080:8080 couchbase-flask-quickstart
+docker run -it --env-file app/.env -p 8000:8000 couchbase-fastapi-quickstart
 ```
 
 > Note: The `.env` file has the connection information to connect to your Capella cluster. With the `--env-file`, docker will inject those environment variables to the container.
-
-Once the app is up and running, you can launch your browser and go to the [Swagger documentation](https://localhost:8080/) to test the APIs.
 
 ### Verifying the Application
 
@@ -131,7 +114,7 @@ Once the application starts, you can see the details of the application on the l
 
 ![Application Startup](app_startup.png)
 
-The application will run on port 8080 of your local machine (http://localhost:8080). You will find the interactive Swagger documentation of the API if you go to the URL in your browser. Swagger documentation is used in this demo to showcase the different API end points and how they can be invoked. More details on the Swagger documentation can be found in the [appendix](#swagger-documentation).
+The application will run on port 8000 of your local machine (http://localhost:8000). You will find the interactive Swagger documentation of the API if you go to the URL in your browser. Swagger documentation is used in this demo to showcase the different API end points and how they can be invoked. More details on the Swagger documentation can be found in the [appendix](#swagger-documentation).
 
 ![Swagger Documentation](swagger_documentation.png)
 
@@ -148,48 +131,69 @@ To begin this tutorial, clone the repo and open it up in the IDE of your choice.
 ### Code Layout
 
 ```
-├── src
-│   ├── Dockerfile
-│   ├── api
+Dockerfile
+├── app
+│   ├── config.py
+│   ├── db.py
+│   ├── main.py
+│   ├── routers
 │   │   ├── airline.py
 │   │   ├── airport.py
 │   │   └── route.py
-│   ├── app.py
-│   ├── db.py
-│   ├── extensions.py
-│   ├── requirements.txt
 │   └── tests
 │       ├── conftest.py
 │       ├── test_airline.py
 │       ├── test_airport.py
 │       └── test_route.py
+└── requirements.txt
 ```
 
-We have separated out the API code into separate files by the entity (collection) in the `api` folder. The tests are similarly separated out by entity in the `tests` folder.
+We have separated out the API code into separate files by the entity (collection) in the `routers` folder. The tests are similarly separated out by entity in the `tests` folder.
 
-In `app.py`, we initialize the application including connecting to the database and add all the routes from individual API files.
+In `main.py`, we initialize the application including connecting to the database and add all the routes from individual API files.
 
 We have the Couchbase SDK operations defined in the `CouchbaseClient` class inside the `db.py` file.
 
 We recommend creating a single Couchbase connection when your application starts up, and sharing this instance throughout your application. If you know at startup time which buckets, scopes, and collections your application will use, we recommend obtaining them from the Cluster at startup time and sharing those instances throughout your application as well.
 
-In this application, we have created the connection object in `extensions.py` and we use this object in all of our APIs. The object is initialized in `app.py`. We have also stored the reference to our bucket, `travel-sample` and the scope, `inventory` in the connection object.
+In this application, we have created the connection object in `get_db` method in `db.py` and we use this object in all of our APIs by caching the object. The object is initialized in `main.py` in the [application lifecycle](https://fastapi.tiangolo.com/advanced/events/#lifespan-events) of FastAPI framework. We have also stored the reference to our bucket, `travel-sample` and the scope, `inventory` in the connection object. When the application is shutdown, we clean up the database connection by calling the `close` method which in turn calls the [`close`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.cluster.Cluster.close) defined in the Cluster object.
 
 ```python
-# app.py
-from extensions import couchbase_db
-
+# main.py
+from app.db import get_db
 ...
 
-# Create the database connection
-couchbase_db.init_app(conn_str, username, password, app)
-couchbase_db.connect()
+# Initialize couchbase connection
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Method that gets called upon app initialization to initialize couchbase connection & close the connection on exit"""
+    db = get_db()
+    yield
+    db.close()
+```
+
+```python
+# get_db method in db.py
+@cache
+def get_db()
+    """Get Couchbase client"""
+    load_dotenv()
+    conn_str = os.getenv("DB_CONN_STR")
+    username = os.getenv("DB_USERNAME")
+    password = os.getenv("DB_PASSWORD")
+    if conn_str is None:
+        print("WARNING: DB_CONN_STR environment variable not set")
+    if username is None:
+        print("WARNING: DB_USERNAME environment variable not set")
+    if password is None:
+        print("WARNING: DB_PASSWORD environment variable not set")
+    return CouchbaseClient(conn_str, username, password)
 ```
 
 The Couchbase connection is established in the `connect` method defined in `db.py`. There, we call the [`Cluster`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.cluster.Cluster) method defined in the SDK to create the Database connection. If the connection is already established, we do not do anything. In our application, we have the same bucket and scope that is used by all the APIs. The collection will change depending on the API route.
 
 ```python
-# db.py
+# connect method in CouchbaseClient class in db.py
 # authentication for Couchbase cluster
 auth = PasswordAuthenticator(self.username, self.password)
 
@@ -208,6 +212,11 @@ self.bucket = self.cluster.bucket(self.bucket_name)
 
 # get a reference to our scope
 self.scope = self.bucket.scope(self.scope_name)
+```
+
+```python
+# close method in CouchbaseClient class in db.py
+self.cluster.close()
 ```
 
 ### Airport Entity
@@ -247,13 +256,12 @@ Our profile document will have an airportname, city, country, faa code, icao cod
 
 ### POST Airport
 
-Open the `airport.py` file and navigate to the `post` method in the `AirportId` class. We make a reference of the json data to a variable `data` that we insert into the database using the datbase client, `couchbase_db`.
+Open the `airport.py` file and navigate to the `create_airport` method. The json data in the body is validated using the [models](https://fastapi.tiangolo.com/tutorial/body/#request-body) defined by Pydantic by FastAPI. We create a dictionary using the Pydantic model's [`model_dump`](https://docs.pydantic.dev/latest/api/base_model/#pydantic.main.BaseModel.model_dump) method that we insert into the database using the datbase client, `db`.
 
 ```python
-# post method in class AirportId of airport.py
-data = request.json
-couchbase_db.insert_document(AIRPORT_COLLECTION, key=id, doc=data)
-return data, 201
+# create_airport method in airport.py
+db.insert_document(AIRPORT_COLLECTION, id, airport.model_dump())
+return airport
 ```
 
 We call the `insert_document` method in CouchbaseClient class, which calls the [`insert`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.collection.Collection.insert) method for the collection defined in the Couchbase SDK. The insert method takes the key (ID) by which the document is referenced and the content to be inserted into the collection.
@@ -267,12 +275,11 @@ def insert_document(self, collection_name: str, key: str, doc: dict):
 
 ### GET Airport
 
-Navigate to the `get` method of the `AirportId` class in the `airport.py` file. We only need the airport document ID or our key from the user to retrieve a particular airport document using a key-value operation which is passed in the get_document method. The result is converted into a python dictionary using the `.content_as[dict]` operation defined for the result returned by the SDK.
+Navigate to the `read_airport` method in the `airport.py` file. We only need the airport document ID or our key from the user to retrieve a particular airport document using a key-value operation which is passed to the `get_document` method. The result is converted into a python dictionary using the `.content_as[dict]` operation defined for the result returned by the SDK.
 
 ```python
-# get method in class AirportId of airport.py
-result = couchbase_db.get_document(AIRPORT_COLLECTION, key=id)
-return result.content_as[dict]
+# read_airport method in airport.py
+db.get_document(AIRPORT_COLLECTION, id).content_as[dict]
 ```
 
 The CouchbaseClient client `get_document` method calls the [`get`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.collection.Collection.get) method defined for collections in the Couchbase SDK. We fetch the documents based on the key by which it is stored.
@@ -290,13 +297,12 @@ If the document is not found in the database, we get an exception, `DocumentNotF
 
 Update an Airport by Document ID
 
-We use the ID value passed in via the URL to call the `upsert_document` method in CouchbaseClient passing it the key and the data provided in the request body using request.json.
+Navigate to `update_airport` method in `airport.py`. We use the ID value passed in via the URL to call the `upsert_document` method in CouchbaseClient passing it the key and the validated data provided in the request body.
 
 ```python
-# put method in class AirportId of airport.py
-updated_doc = request.json
-couchbase_db.upsert_document(AIRPORT_COLLECTION, key=id, doc=updated_doc)
-return updated_doc
+# update_airport method in airport.py
+db.upsert_document(AIRPORT_COLLECTION, id, airport.model_dump())
+return airport
 ```
 
 The CouchbaseClient class `upsert_document` method calls the [`upsert`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.collection.Collection.upsert) method defined for collection in the Couchbase SDK with the key and json data to update the document in the database.
@@ -310,12 +316,11 @@ def upsert_document(self, collection_name: str, key: str, doc: dict):
 
 ### DELETE Airport
 
-Navigate to the `delete` function in `airport.py`. We only need the key or document ID from the user to delete a document using the key-value operation.
+Navigate to the `delete_airport` method in `airport.py`. We only need the key or document ID from the user to delete a document using the key-value operation.
 
 ```python
-# delete method in class AirportId of airport.py
-couchbase_db.delete_document(AIRPORT_COLLECTION, key=id)
-return "Deleted", 204
+# delete_airport method in airport.py
+db.delete_document(AIRPORT_COLLECTION, id)
 ```
 
 The `delete_document` method in CouchbaseClient class calls the [`remove`](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_core.html#couchbase.collection.Collection.remove) method defined for collection in the Couchbase SDK sending the key of the document to remove from the database.
@@ -331,11 +336,11 @@ def delete_document(self, collection_name: str, key: str):
 
 This endpoint retrieves the list of airports in the database. The API has options to specify the page size for the results and country from which to fetch the airport documents.
 
-[SQL++](https://docs.couchbase.com/python-sdk/current/howtos/n1ql-queries-with-sdk.html) is a powerful query language based on SQL, but designed for structured and flexible JSON documents. We will use a SQL+ query to search for airports with Limit, Offset, and Country option.
+[SQL++](https://docs.couchbase.com/python-sdk/current/howtos/n1ql-queries-with-sdk.html) is a powerful query language based on SQL, but designed for structured and flexible JSON documents. We will use a SQL++ query to search for airports with Limit, Offset, and Country option.
 
-Navigate to the `get` method in the `AirportList` class of `airport.py` file. This endpoint is different from the others we have seen before because it makes the SQL++ query rather than a key-value operation. This usually means more overhead because the query engine is involved. For this query, we are using the predefined indices in the `travel-sample` bucket. We can create an additional [index](https://docs.couchbase.com/server/current/learn/services-and-indexes/indexes/indexing-and-query-perf.html) specific for this query to make it perform better.
+Navigate to the `get_airports_list` method in the `airport.py` file. This endpoint is different from the others we have seen before because it makes the SQL++ query rather than a key-value operation. This usually means more overhead because the query engine is involved. For this query, we are using the predefined indices in the `travel-sample` bucket. We can create an additional [index](https://docs.couchbase.com/server/current/learn/services-and-indexes/indexes/indexing-and-query-perf.html) specific for this query to make it perform better.
 
-First, we need to get the values from the query string for country, limit, and Offset that we will use in our query. These are pulled from the `request.args.get` method.
+First, we need to get the values from the query string for country, limit, and Offset that we will use in our query. These are pulled in by the [annotations](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) on the method in FastAPI.
 
 This end point has two queries depending on the value for the country parameter. If a country name is specified, we retrieve the airport documents for that specific country. If it is not specified, we retrieve the list of airports across all countries. The queries are slightly different for these two scenarios.
 
@@ -344,10 +349,7 @@ We build our SQL++ query using the [parameters](https://docs.couchbase.com/pytho
 Next, we pass that `query` to the CouchbaseClient class `query` method. We save the results in a list, `airports`. By default, the Python SDK will [stream result set from the server](https://docs.couchbase.com/python-sdk/current/howtos/n1ql-queries-with-sdk.html#streaming-large-result-sets). To gather all the results, we need to iterate over the results.
 
 ```python
-# get method in AirportList class in airport.py
-country = request.args.get("country", "")
-limit = int(request.args.get("limit", 10))
-offset = int(request.args.get("offset", 0))
+# get_airports_list method in airport.py
 
 # create query
 if country:
@@ -381,9 +383,7 @@ else:
     """
 
 # run query
-results = couchbase_db.query(
-            query, country=country, limit=limit, offset=offset
-          )
+result = db.query(query, country=country, limit=limit, offset=offset)
 # gather all documents
 airports = [r for r in results]
 return airports
@@ -418,16 +418,15 @@ OFFSET $offset
 
 We are fetching the direct connections by joining the airport collection with the route collection and filtering based on the source airport specified by the user and by routes with no stops.
 
-## Running Tests
+### Running Tests
 
 We have defined integration tests using [pytest](https://docs.pytest.org/en/7.4.x/) for all the API end points. The integration tests use the same database configuration as the application. For the tests, we perform the operation using the API and confirm the results by checking the documents in the database. For example, to check the creation of the document by the API, we would call the API to create the document and then read the same document directly from the database using the CouchbaseClient and compare them. After the tests, the documents are cleaned up.
 
 The tests including the fixtures and helpers for the tests are configured in the `conftest.py` file in the tests folder.
 
-To run the tests, use the following commands:
+To run the tests, use the following command:
 
-```bash
-cd src
+```sh
 python -m pytest
 ```
 
@@ -438,7 +437,7 @@ python -m pytest
 If you would like to add another entity to the APIs, these are the steps to follow:
 
 - Create the new entity (collection) in the Couchbase bucket. You can create the collection using the [SDK](https://docs.couchbase.com/sdk-api/couchbase-python-client/couchbase_api/couchbase_management.html#couchbase.management.collections.CollectionManager.create_collection) or via the [Couchbase Server interface](https://docs.couchbase.com/cloud/n1ql/n1ql-language-reference/createcollection.html).
-- Define the routes in a new file in the `api` folder similar to the existing routes like `airport.py`.
+- Define the routes in a new file in the `routers` folder similar to the existing routes like `airport.py`.
 - Add the new routes to the application in `app.py`.
 - Add the tests for the new routes in a new file in the `tests` folder similar to `test_airport.py`.
 
@@ -450,7 +449,7 @@ If you are running this quickstart with a self managed Couchbase cluster, you ne
 
 You need to update the connection string and the credentials in the `.env` file in the source folder.
 
-> Note: Couchbase Server must be installed and running prior to running the Flask Python app.
+> Note: Couchbase Server must be installed and running prior to running the FastAPI Python app.
 
 ### Swagger Documentation
 
