@@ -1,11 +1,11 @@
 ---
 # frontmatter
-path: "/tutorial-openai-claude-couchbase-rag"
-title: Retrieval-Augmented Generation (RAG) with Couchbase, OpenAI, and Claude
-short_title: RAG with Couchbase, OpenAI, and Claude
+path: "/tutorial-jina-couchbase-rag"
+title: Retrieval-Augmented Generation (RAG) with Couchbase and Jina AI
+short_title: RAG with Couchbase and Jina
 description:
-  - Learn how to build a semantic search engine using Couchbase, OpenAI embeddings, and Anthropic's Claude.
-  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with OpenAI embeddings and use Claude as the language model.
+  - Learn how to build a semantic search engine using Couchbase and Jina.
+  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with Jina embeddings and language models.
   - You'll understand how to perform Retrieval-Augmented Generation (RAG) using LangChain and Couchbase.
 content_type: tutorial
 filter: sdk
@@ -14,7 +14,7 @@ technology:
 tags:
   - Artificial Intelligence
   - LangChain
-  - OpenAI
+  - Jina AI
 sdk_language:
   - python
 length: 60 Mins
@@ -25,14 +25,14 @@ length: 60 Mins
 
 
 # Introduction
-In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database, [OpenAI](https://openai.com/) as the AI-powered embedding and [Anthropic](https://claude.ai/) as the language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
+In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database and [Jina](https://jina.ai/) as the AI-powered embedding and language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
 
 # Setting the Stage: Installing Necessary Libraries
-To build our semantic search engine, we need a robust set of tools. The libraries we install handle everything from connecting to databases to performing complex machine learning tasks. Each library has a specific role: Couchbase libraries manage database operations, LangChain handles AI model integrations, and OpenAI provides advanced AI models for generating embeddings and Claude(by Anthropic) for understanding natural language. By setting up these libraries, we ensure our environment is equipped to handle the data-intensive and computationally complex tasks required for semantic search.
+To build our semantic search engine, we need a robust set of tools. The libraries we install handle everything from connecting to databases to performing complex machine learning tasks. Each library has a specific role: Couchbase libraries manage database operations, LangChain handles AI model integrations, and Jina provides advanced AI models for generating embeddings and understanding natural language. By setting up these libraries, we ensure our environment is equipped to handle the data-intensive and computationally complex tasks required for semantic search.
 
 
 ```python
-!pip install datasets langchain-couchbase langchain-anthropic langchain-openai
+!pip install datasets langchain-couchbase langchain-community openai==0.27
 ```
 
     [Output too long, omitted for brevity]
@@ -44,26 +44,30 @@ The script starts by importing a series of libraries required for various tasks,
 ```python
 import json
 import logging
+import os
 import time
-import sys
 import getpass
 from datetime import timedelta
 from uuid import uuid4
 
 from couchbase.auth import PasswordAuthenticator
 from couchbase.cluster import Cluster
-from couchbase.exceptions import CouchbaseException, InternalServerFailureException, QueryIndexAlreadyExistsException
+from couchbase.exceptions import (CouchbaseException,
+                                  InternalServerFailureException,
+                                  QueryIndexAlreadyExistsException)
 from couchbase.management.search import SearchIndex
 from couchbase.options import ClusterOptions
 from datasets import load_dataset
-from langchain_anthropic import ChatAnthropic
+from langchain_community.chat_models import JinaChat
+from langchain_community.embeddings import JinaEmbeddings
 from langchain_core.documents import Document
 from langchain_core.globals import set_llm_cache
-from langchain_core.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_couchbase.cache import CouchbaseCache
 from langchain_couchbase.vectorstores import CouchbaseVectorStore
-from langchain_openai import OpenAIEmbeddings
 from tqdm import tqdm
 ```
 
@@ -73,44 +77,45 @@ Logging is configured to track the progress of the script and capture any errors
 
 
 ```python
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',force=True)
 ```
 
 # Loading Sensitive Informnation
-In this section, we prompt the user to input essential configuration settings needed. These settings include sensitive information like API keys, database credentials, and specific configuration names. Instead of hardcoding these details into the script, we request the user to provide them at runtime, ensuring flexibility and security.
+In this section, we prompt the user to input essential configuration settings needed for integrating Couchbase with Cohere's API. These settings include sensitive information like API keys, database credentials, and specific configuration names. Instead of hardcoding these details into the script, we request the user to provide them at runtime, ensuring flexibility and security.
 
 The script also validates that all required inputs are provided, raising an error if any crucial information is missing. This approach ensures that your integration is both secure and correctly configured without hardcoding sensitive information, enhancing the overall security and maintainability of your code.
 
 
 ```python
-ANTHROPIC_API_KEY = getpass.getpass('Enter your Anthropic API key: ')
-OPENAI_API_KEY = getpass.getpass('Enter your OpenAI API key: ')
+JINA_API_KEY = getpass.getpass("JINA_API_KEY")
+JINACHAT_API_KEY = getpass.getpass("JINACHAT_API_KEY")
 CB_HOST = input('Enter your Couchbase host (default: couchbase://localhost): ') or 'couchbase://localhost'
 CB_USERNAME = input('Enter your Couchbase username (default: Administrator): ') or 'Administrator'
 CB_PASSWORD = getpass.getpass('Enter your Couchbase password (default: password): ') or 'password'
 CB_BUCKET_NAME = input('Enter your Couchbase bucket name (default: vector-search-testing): ') or 'vector-search-testing'
-INDEX_NAME = input('Enter your index name (default: vector_search_claude): ') or 'vector_search_claude'
-SCOPE_NAME = input('Enter your scope name (default: shared): ') or 'shared'
-COLLECTION_NAME = input('Enter your collection name (default: claude): ') or 'claude'
-CACHE_COLLECTION = input('Enter your cache collection name (default: cache): ') or 'cache'
+INDEX_NAME = input('Enter your Couchbase index name (default: vector_search_jina): ') or 'vector_search_jina'
+
+SCOPE_NAME = input('Enter your Couchbase scope name (default: shared): ') or 'shared'
+COLLECTION_NAME = input('Enter your Couchbase collection name (default: jina): ') or 'jina'
+CACHE_COLLECTION = input('Enter your Couchbase cache collection name (default: cache): ') or 'cache'
 
 # Check if the variables are correctly loaded
-if not ANTHROPIC_API_KEY:
-    raise ValueError("ANTHROPIC_API_KEY is not set in the environment.")
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY is not set in the environment.")
+if not JINA_API_KEY:
+    raise ValueError("JINA_API_KEY environment variable is not set")
+if not JINACHAT_API_KEY:
+    raise ValueError("JINACHAT_API_KEY environment variable is not set")
 ```
 
-    Enter your Anthropic API key: ··········
-    Enter your OpenAI API key: ··········
+    JINA_API_KEY··········
+    JINACHAT_API_KEY··········
     Enter your Couchbase host (default: couchbase://localhost): couchbases://cb.hlcup4o4jmjr55yf.cloud.couchbase.com
     Enter your Couchbase username (default: Administrator): vector-search-rag-demos
     Enter your Couchbase password (default: password): ··········
     Enter your Couchbase bucket name (default: vector-search-testing): 
-    Enter your index name (default: vector_search_claude): 
-    Enter your scope name (default: shared): 
-    Enter your collection name (default: claude): 
-    Enter your cache collection name (default: cache): 
+    Enter your Couchbase index name (default: vector_search_jina): 
+    Enter your Couchbase scope name (default: shared): 
+    Enter your Couchbase collection name (default: jina): 
+    Enter your Couchbase cache collection name (default: cache): 
 
 
 # Connecting to the Couchbase Cluster
@@ -130,7 +135,7 @@ except Exception as e:
     raise ConnectionError(f"Failed to connect to Couchbase: {str(e)}")
 ```
 
-    2024-08-29 13:33:54,574 - INFO - Successfully connected to Couchbase
+    2024-08-30 07:01:33,604 - INFO - Successfully connected to Couchbase
 
 
 # Setting Up Collections in Couchbase
@@ -184,18 +189,18 @@ setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, COLLECTION_NAME)
 setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, CACHE_COLLECTION)
 ```
 
-    2024-08-29 13:33:54,801 - INFO - Collection 'claude' already exists.Skipping creation.
-    2024-08-29 13:33:54,836 - INFO - Primary index present or created successfully.
-    2024-08-29 13:33:55,491 - INFO - All documents cleared from the collection.
-    2024-08-29 13:33:55,529 - INFO - Collection 'cache' already exists.Skipping creation.
-    2024-08-29 13:33:55,567 - INFO - Primary index present or created successfully.
-    2024-08-29 13:33:55,605 - INFO - All documents cleared from the collection.
+    2024-08-30 07:01:34,024 - INFO - Collection 'jina' already exists.Skipping creation.
+    2024-08-30 07:01:34,092 - INFO - Primary index present or created successfully.
+    2024-08-30 07:01:34,779 - INFO - All documents cleared from the collection.
+    2024-08-30 07:01:34,850 - INFO - Collection 'cache' already exists.Skipping creation.
+    2024-08-30 07:01:34,919 - INFO - Primary index present or created successfully.
+    2024-08-30 07:01:34,991 - INFO - All documents cleared from the collection.
 
 
 
 
 
-    <couchbase.collection.Collection at 0x7c1c3a201d20>
+    <couchbase.collection.Collection at 0x7a3722ac3040>
 
 
 
@@ -205,7 +210,7 @@ Semantic search requires an efficient way to retrieve relevant documents based o
 
 
 ```python
-# index_definition_path = '/path_to_your_index_file/claude_index.json'
+# index_definition_path = '/path_to_your_index_file/jina_index.json'
 
 # Prompt user to upload to google drive
 from google.colab import files
@@ -223,7 +228,7 @@ except Exception as e:
     Upload your index definition file
 
 
-    Saving claude_index.json to claude_index.json
+    Saving jina_index.json to jina_index.json
 
 
 # Creating or Updating Search Indexes
@@ -266,8 +271,8 @@ except InternalServerFailureException as e:
             error_details = json.loads(response_body)
             error_message = error_details.get('error', '')
 
-            if "collection: 'claude' doesn't belong to scope: 'shared'" in error_message:
-                raise ValueError("Collection 'claude' does not belong to scope 'shared'. Please check the collection and scope names.")
+            if "collection: 'jina' doesn't belong to scope: 'shared'" in error_message:
+                raise ValueError("Collection 'jina' does not belong to scope 'shared'. Please check the collection and scope names.")
 
     except ValueError as ve:
         logging.error(str(ve))
@@ -278,8 +283,8 @@ except InternalServerFailureException as e:
         raise RuntimeError(f"Internal server error while creating/updating search index: {error_message}")
 ```
 
-    2024-08-29 13:35:01,109 - INFO - Index 'vector_search_claude' found
-    2024-08-29 13:35:01,317 - INFO - Index 'vector_search_claude' already exists. Skipping creation/update.
+    2024-08-30 07:01:51,411 - INFO - Index 'vector_search_jina' found
+    2024-08-30 07:01:51,689 - INFO - Index 'vector_search_jina' already exists. Skipping creation/update.
 
 
 # Load the TREC Dataset
@@ -334,24 +339,26 @@ except Exception as e:
     Generating test split:   0%|          | 0/500 [00:00<?, ? examples/s]
 
 
-    2024-08-29 13:35:10,138 - INFO - Successfully loaded TREC dataset with 1000 samples
+    2024-08-30 07:02:01,486 - INFO - Successfully loaded TREC dataset with 1000 samples
 
 
-# Creating OpenAI Embeddings
-Embeddings are at the heart of semantic search. They are numerical representations of text that capture the semantic meaning of the words and phrases. Unlike traditional keyword-based search, which looks for exact matches, embeddings allow our search engine to understand the context and nuances of language, enabling it to retrieve documents that are semantically similar to the query, even if they don't contain the exact keywords. By creating embeddings using OpenAI, we equip our search engine with the ability to understand and process natural language in a way that's much closer to how humans understand language. This step transforms our raw text data into a format that the search engine can use to find and rank relevant documents.
+# Creating Jina Embeddings
+Embeddings are at the heart of semantic search. They are numerical representations of text that capture the semantic meaning of the words and phrases. Unlike traditional keyword-based search, which looks for exact matches, embeddings allow our search engine to understand the context and nuances of language, enabling it to retrieve documents that are semantically similar to the query, even if they don't contain the exact keywords. By creating embeddings using Jina, we equip our search engine with the ability to understand and process natural language in a way that's much closer to how humans understand language. This step transforms our raw text data into a format that the search engine can use to find and rank relevant documents.
 
 
 
 
 ```python
 try:
-    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, model='text-embedding-ada-002')
-    logging.info("Successfully created OpenAIEmbeddings")
+    embeddings = JinaEmbeddings(
+        jina_api_key=JINA_API_KEY, model_name="jina-embeddings-v2-base-en"
+    )
+    logging.info("Successfully created JinaEmbeddings")
 except Exception as e:
-    raise ValueError(f"Error creating OpenAIEmbeddings: {str(e)}")
+    raise ValueError(f"Error creating JinaEmbeddings: {str(e)}")
 ```
 
-    2024-08-29 13:35:10,317 - INFO - Successfully created OpenAIEmbeddings
+    2024-08-30 07:02:01,509 - INFO - Successfully created JinaEmbeddings
 
 
 #  Setting Up the Couchbase Vector Store
@@ -374,7 +381,7 @@ except Exception as e:
 
 ```
 
-    2024-08-29 13:35:10,989 - INFO - Successfully created vector store
+    2024-08-30 07:02:02,611 - INFO - Successfully created vector store
 
 
 # Saving Data to the Vector Store
@@ -384,20 +391,19 @@ Batch processing is particularly important when dealing with large datasets, as 
 
 
 ```python
+batch_size = 50
 try:
-    batch_size = 50
-    logging.disable(sys.maxsize) # Disable logging to prevent tqdm output
     for i in tqdm(range(0, len(trec['text']), batch_size), desc="Processing Batches"):
         batch = trec['text'][i:i + batch_size]
         documents = [Document(page_content=text) for text in batch]
         uuids = [str(uuid4()) for _ in range(len(documents))]
         vector_store.add_documents(documents=documents, ids=uuids)
-    logging.disable(logging.NOTSET) # Re-enable logging
 except Exception as e:
     raise RuntimeError(f"Failed to save documents to vector store: {str(e)}")
+
 ```
 
-    Processing Batches: 100%|██████████| 20/20 [00:16<00:00,  1.22it/s]
+    Processing Batches: 100%|██████████| 20/20 [00:30<00:00,  1.54s/it]
 
 
 # Setting Up a Couchbase Cache
@@ -421,11 +427,11 @@ except Exception as e:
     raise ValueError(f"Failed to create cache: {str(e)}")
 ```
 
-    2024-08-29 13:35:27,788 - INFO - Successfully created cache
+    2024-08-30 07:02:34,204 - INFO - Successfully created cache
 
 
-# Using the Claude 3.5 Sonnet Language Model (LLM)
-Language models are AI systems that are trained to understand and generate human language. We'll be using the `Claude 3.5 Sonnet` language model to process user queries and generate meaningful responses. This model is a key component of our semantic search engine, allowing it to go beyond simple keyword matching and truly understand the intent behind a query. By creating this language model, we equip our search engine with the ability to interpret complex queries, understand the nuances of language, and provide more accurate and contextually relevant responses.
+# Creating the Jina Language Model (LLM)
+Language models are AI systems that are trained to understand and generate human language. We'll be using Jina's language model to process user queries and generate meaningful responses. This model is a key component of our semantic search engine, allowing it to go beyond simple keyword matching and truly understand the intent behind a query. By creating this language model, we equip our search engine with the ability to interpret complex queries, understand the nuances of language, and provide more accurate and contextually relevant responses.
 
 The language model's ability to understand context and generate coherent responses is what makes our search engine truly intelligent. It can not only find the right information but also present it in a way that is useful and understandable to the user.
 
@@ -434,14 +440,14 @@ The language model's ability to understand context and generate coherent respons
 
 ```python
 try:
-    llm = ChatAnthropic(temperature=0, anthropic_api_key=ANTHROPIC_API_KEY, model_name='claude-3-5-sonnet-20240620')
-    logging.info("Successfully created ChatAnthropic")
+    llm = JinaChat(temperature=0, jinachat_api_key=JINACHAT_API_KEY)
+    logging.info("Successfully created JinaChat")
 except Exception as e:
-    logging.error(f"Error creating ChatAnthropic: {str(e)}. Please check your API key and network connection.")
+    logging.error(f"Error creating JinaChat: {str(e)}. Please check your API key and network connection.")
     raise
 ```
 
-    2024-08-29 13:35:27,933 - INFO - Successfully created ChatAnthropic
+    2024-08-30 07:02:34,243 - INFO - Successfully created JinaChat
 
 
 # Perform Semantic Search
@@ -472,77 +478,68 @@ except Exception as e:
     raise RuntimeError(f"Unexpected error: {str(e)}")
 ```
 
-    2024-08-29 13:35:28,094 - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
-    2024-08-29 13:35:28,285 - INFO - Semantic search completed in 0.34 seconds
+    2024-08-30 07:02:34,947 - INFO - Semantic search completed in 0.69 seconds
 
 
     
-    Semantic Search Results (completed in 0.34 seconds):
-    Distance: 0.9178, Text: Why did the world enter a global depression in 1929 ?
-    Distance: 0.8714, Text: When was `` the Great Depression '' ?
-    Distance: 0.8115, Text: What crop failure caused the Irish Famine ?
-    Distance: 0.7985, Text: What historical event happened in Dogtown in 1899 ?
-    Distance: 0.7917, Text: What caused the Lynmouth floods ?
-    Distance: 0.7912, Text: When did the Dow first reach ?
-    Distance: 0.7908, Text: When was the first Wall Street Journal published ?
-    Distance: 0.7885, Text: What were popular songs and types of songs in the 1920s ?
-    Distance: 0.7857, Text: When did World War I start ?
-    Distance: 0.7842, Text: What caused Harry Houdini 's death ?
+    Semantic Search Results (completed in 0.69 seconds):
+    Distance: 194.3083, Text: Why did the world enter a global depression in 1929 ?
+    Distance: 176.8704, Text: When was `` the Great Depression '' ?
+    Distance: 163.8700, Text: What crop failure caused the Irish Famine ?
+    Distance: 161.0856, Text: What 's nature 's purpose for tornadoes ?
+    Distance: 160.2221, Text: What caused the Lynmouth floods ?
+    Distance: 160.0759, Text: What caused Harry Houdini 's death ?
+    Distance: 158.5242, Text: What were popular songs and types of songs in the 1920s ?
+    Distance: 157.3817, Text: Give a reason for American Indians oftentimes dropping out of school .
+    Distance: 157.1777, Text: Why is black the color of mourning in the West ?
+    Distance: 156.7614, Text: When was the San Francisco fire ?
 
 
-# Retrieval-Augmented Generation (RAG) with Couchbase and LangChain
+# Retrieval-Augmented Generation (RAG) with Couchbase and Langchain
 Couchbase and LangChain can be seamlessly integrated to create RAG (Retrieval-Augmented Generation) chains, enhancing the process of generating contextually relevant responses. In this setup, Couchbase serves as the vector store, where embeddings of documents are stored. When a query is made, LangChain retrieves the most relevant documents from Couchbase by comparing the query’s embedding with the stored document embeddings. These documents, which provide contextual information, are then passed to a generative language model within LangChain.
 
 The language model, equipped with the context from the retrieved documents, generates a response that is both informed and contextually accurate. This integration allows the RAG chain to leverage Couchbase’s efficient storage and retrieval capabilities, while LangChain handles the generation of responses based on the context provided by the retrieved documents. Together, they create a powerful system that can deliver highly relevant and accurate answers by combining the strengths of both retrieval and generation.
 
 
 ```python
-system_template = "You are a helpful assistant that answers questions based on the provided context."
-system_message_prompt = SystemMessagePromptTemplate.from_template(system_template)
+try:
+    template = """You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
+    {context}
 
-human_template = "Context: {context}\n\nQuestion: {question}"
-human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+    Question: {question}"""
+    prompt = ChatPromptTemplate.from_template(template)
 
-chat_prompt = ChatPromptTemplate.from_messages([
-    system_message_prompt,
-    human_message_prompt
-])
-
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
-rag_chain = (
-    {"context": lambda x: format_docs(vector_store.similarity_search(x)), "question": RunnablePassthrough()}
-    | chat_prompt
-    | llm
-)
-logging.info("Successfully created RAG chain")
+    rag_chain = (
+        {"context": vector_store.as_retriever(), "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+    logging.info("Successfully created RAG chain")
+except Exception as e:
+    raise ValueError(f"Error creating RAG chain: {str(e)}")
 ```
 
-    2024-08-29 13:35:28,305 - INFO - Successfully created RAG chain
+    2024-08-30 07:02:34,968 - INFO - Successfully created RAG chain
 
 
 
 ```python
-# Get responses
-logging.disable(sys.maxsize) # Disable logging to prevent tqdm output
-start_time = time.time()
-rag_response = rag_chain.invoke(query)
-rag_elapsed_time = time.time() - start_time
-
-print(f"RAG Response: {rag_response.content}")
-print(f"RAG response generated in {rag_elapsed_time:.2f} seconds")
+try:
+    # Get RAG response
+    start_time = time.time()
+    rag_response = rag_chain.invoke(query)
+    rag_elapsed_time = time.time() - start_time
+    logging.info(f"RAG response generated in {rag_elapsed_time:.2f} seconds")
+    print(f"RAG Response: {rag_response}")
+except Exception as e:
+    raise ValueError(f"Error generating RAG response: {str(e)}")
 ```
 
-    RAG Response: Based on the context provided, the world entered a global depression in 1929. This event is commonly known as "the Great Depression." While the context doesn't provide specific causes for the Great Depression, it's generally understood that it was triggered by a combination of factors, including:
-    
-    1. The stock market crash of 1929
-    2. Bank failures
-    3. A decline in consumer spending and investment
-    4. International economic issues, such as the gold standard and trade policies
-    
-    It's important to note that the exact causes of the Great Depression are complex and still debated by historians and economists. The context doesn't provide detailed information about the specific triggers, but it does confirm that 1929 was the year when the global depression began.
-    RAG response generated in 3.16 seconds
+    2024-08-30 07:02:48,454 - INFO - RAG response generated in 13.46 seconds
+
+
+    RAG Response: The 1929 Great Depression was primarily caused by the stock market crash of 1929, also known as Black Tuesday. This crash occurred after a period of speculation and unsustainable growth in the late 1920s, leading to the loss of billions of dollars and devastating the American economy. It triggered a loss of confidence in the economy and banks, causing people to withdraw their money and worsening the crisis. The stock market crash of 1929 is widely considered to be the main cause of the Great Depression, which lasted for nearly a decade and resulted in high unemployment and poverty. The global depression in 1929 was also known as the Great Depression and had a significant impact on the international trade and banking system. However, it is important to note that the Great Depression was caused by a combination of factors, including overproduction, banking failures, and a decline in international trade.
 
 
 # Using Couchbase as a caching mechanism
@@ -551,74 +548,42 @@ Couchbase can be effectively used as a caching mechanism for RAG (Retrieval-Augm
 For subsequent requests with the same query, the system checks Couchbase first. If a cached response is found, it is retrieved directly from Couchbase, bypassing the need to re-run the entire RAG process. This significantly reduces response time because the computationally expensive steps of document retrieval and response generation are skipped. Couchbase's role in this setup is to provide a fast and scalable storage solution for caching these responses, ensuring that frequently asked queries can be answered more quickly and efficiently.
 
 
-
 ```python
 try:
     queries = [
-        "Why do heavier objects travel downhill faster?",
-        "What caused the 1929 Great Depression?", # Repeated query
-        "Why do heavier objects travel downhill faster?",  # Repeated query
+        "How does photosynthesis work?",
+        "What is the capital of France?",
+        "What caused the 1929 Great Depression?",  # Repeated query
+        "How does photosynthesis work?",  # Repeated query
     ]
 
     for i, query in enumerate(queries, 1):
         print(f"\nQuery {i}: {query}")
         start_time = time.time()
-
         response = rag_chain.invoke(query)
         elapsed_time = time.time() - start_time
-        print(f"Response: {response.content}")
+        print(f"Response: {response}")
         print(f"Time taken: {elapsed_time:.2f} seconds")
 except Exception as e:
     raise ValueError(f"Error generating RAG response: {str(e)}")
 ```
 
     
-    Query 1: Why do heavier objects travel downhill faster?
-    Response: Based on the provided context, I can answer the question about why heavier objects travel downhill faster.
+    Query 1: How does photosynthesis work?
+    Response: Photosynthesis is the process by which plants convert sunlight, carbon dioxide, and water into glucose (energy) and oxygen. This process occurs in chloroplasts, where the pigment called chlorophyll absorbs light and converts it into chemical energy. The key components of photosynthesis are sunlight, chlorophyll, carbon dioxide from the air, and water. The end products of photosynthesis are glucose (sugar) and oxygen, with glucose serving as the plant's source of energy.
+    Time taken: 10.69 seconds
     
-    Heavier objects generally travel downhill faster due to the relationship between mass, gravity, and friction. Here's a more detailed explanation:
+    Query 2: What is the capital of France?
+    Response: The capital of France is Paris.
+    Time taken: 8.08 seconds
     
-    1. Gravitational force: The force of gravity acting on an object is proportional to its mass. Heavier objects have more mass, so they experience a stronger gravitational pull.
+    Query 3: What caused the 1929 Great Depression?
+    Response: The 1929 Great Depression was primarily caused by the stock market crash of 1929, also known as Black Tuesday. This crash occurred after a period of speculation and unsustainable growth in the late 1920s, leading to the loss of billions of dollars and devastating the American economy. It triggered a loss of confidence in the economy and banks, causing people to withdraw their money and worsening the crisis. The stock market crash of 1929 is widely considered to be the main cause of the Great Depression, which lasted for nearly a decade and resulted in high unemployment and poverty. The global depression in 1929 was also known as the Great Depression and had a significant impact on the international trade and banking system. However, it is important to note that the Great Depression was caused by a combination of factors, including overproduction, banking failures, and a decline in international trade.
+    Time taken: 0.91 seconds
     
-    2. Friction: While friction does act against the motion of objects rolling downhill, it doesn't increase proportionally with mass. This means that the ratio of gravitational force to friction is generally more favorable for heavier objects.
-    
-    3. Inertia: Heavier objects have more inertia, which means they resist changes in motion more than lighter objects. Once they start moving, they tend to keep moving more easily.
-    
-    4. Air resistance: While air resistance does affect objects moving downhill, its effect is relatively smaller on heavier objects compared to lighter ones, as the ratio of air resistance to mass is lower for heavier objects.
-    
-    As a result of these factors, heavier objects typically accelerate faster and reach higher speeds when traveling downhill compared to lighter objects of similar shape and size.
-    
-    It's important to note that in a vacuum (where there's no air resistance), all objects would fall at the same rate regardless of their mass. However, in real-world conditions with air resistance and friction, heavier objects generally move faster downhill.
-    Time taken: 5.61 seconds
-    
-    Query 2: What caused the 1929 Great Depression?
-    Response: Based on the context provided, the world entered a global depression in 1929. This event is commonly known as "the Great Depression." While the context doesn't provide specific causes for the Great Depression, it's generally understood that it was triggered by a combination of factors, including:
-    
-    1. The stock market crash of 1929
-    2. Bank failures
-    3. A decline in consumer spending and investment
-    4. International economic issues, such as the gold standard and trade policies
-    
-    It's important to note that the exact causes of the Great Depression are complex and still debated by historians and economists. The context doesn't provide detailed information about the specific triggers, but it does confirm that 1929 was the year when the global depression began.
-    Time taken: 2.22 seconds
-    
-    Query 3: Why do heavier objects travel downhill faster?
-    Response: Based on the provided context, I can answer the question about why heavier objects travel downhill faster.
-    
-    Heavier objects generally travel downhill faster due to the relationship between mass, gravity, and friction. Here's a more detailed explanation:
-    
-    1. Gravitational force: The force of gravity acting on an object is proportional to its mass. Heavier objects have more mass, so they experience a stronger gravitational pull.
-    
-    2. Friction: While friction does act against the motion of objects rolling downhill, it doesn't increase proportionally with mass. This means that the ratio of gravitational force to friction is generally more favorable for heavier objects.
-    
-    3. Inertia: Heavier objects have more inertia, which means they resist changes in motion more than lighter objects. Once they start moving, they tend to keep moving more easily.
-    
-    4. Air resistance: While air resistance does affect objects moving downhill, its effect is relatively smaller on heavier objects compared to lighter ones, as the ratio of air resistance to mass is lower for heavier objects.
-    
-    As a result of these factors, heavier objects typically accelerate faster and reach higher speeds when traveling downhill compared to lighter objects of similar shape and size.
-    
-    It's important to note that in a vacuum (where there's no air resistance), all objects would fall at the same rate regardless of their mass. However, in real-world conditions with air resistance and friction, heavier objects generally move faster downhill.
-    Time taken: 0.35 seconds
+    Query 4: How does photosynthesis work?
+    Response: Photosynthesis is the process by which plants convert sunlight, carbon dioxide, and water into glucose (energy) and oxygen. This process occurs in chloroplasts, where the pigment called chlorophyll absorbs light and converts it into chemical energy. The key components of photosynthesis are sunlight, chlorophyll, carbon dioxide from the air, and water. The end products of photosynthesis are glucose (sugar) and oxygen, with glucose serving as the plant's source of energy.
+    Time taken: 0.73 seconds
 
 
-By following these steps, you’ll have a fully functional semantic search engine that leverages the strengths of Couchbase and Claude(by Anthropic). This guide is designed not just to show you how to build the system, but also to explain why each step is necessary, giving you a deeper understanding of the principles behind semantic search and how to implement it effectively. Whether you’re a newcomer to software development or an experienced developer looking to expand your skills, this guide will provide you with the knowledge and tools you need to create a powerful, AI-driven search engine.
+By following these steps, you’ll have a fully functional semantic search engine that leverages the strengths of Couchbase and Jina. This guide is designed not just to show you how to build the system, but also to explain why each step is necessary, giving you a deeper understanding of the principles behind semantic search and how to implement it effectively. Whether you’re a newcomer to software development or an experienced developer looking to expand your skills, this guide will provide you with the knowledge and tools you need to create a powerful, AI-driven search engine.

@@ -1,11 +1,11 @@
 ---
 # frontmatter
-path: "/tutorial-cohere-couchbase-rag"
-title: Retrieval-Augmented Generation (RAG) with Couchbase and Cohere
-short_title: RAG with Couchbase and Cohere
+path: "/tutorial-openai-voyage-couchbase-rag"
+title: Retrieval-Augmented Generation (RAG) with Couchbase, OpenAI, and Voyage
+short_title: RAG with Couchbase, OpenAI, and Claude
 description:
-  - Learn how to build a semantic search engine using Couchbase and Cohere.
-  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with Cohere embeddings and language models.
+  - Learn how to build a semantic search engine using Couchbase, OpenAI, and Voyage
+  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with Voyage embeddings and use OpenAI as the language model.
   - You'll understand how to perform Retrieval-Augmented Generation (RAG) using LangChain and Couchbase.
 content_type: tutorial
 filter: sdk
@@ -14,7 +14,7 @@ technology:
 tags:
   - Artificial Intelligence
   - LangChain
-  - Cohere
+  - OpenAI
 sdk_language:
   - python
 length: 60 Mins
@@ -25,21 +25,20 @@ length: 60 Mins
 
 
 # Introduction
-In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database and [Cohere](https://cohere.com/)
- as the AI-powered embedding and language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
+In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database and [Voyage](https://www.voyageai.com/) as the AI-powered embedding and [OpenAI](https://openai.com/) as the language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
 
 # Setting the Stage: Installing Necessary Libraries
 To build our semantic search engine, we need a robust set of tools. The libraries we install handle everything from connecting to databases to performing complex machine learning tasks.
 
 
 ```python
-!pip install datasets langchain-couchbase langchain-cohere
+!pip install datasets langchain-couchbase langchain-voyageai langchain-openai
 ```
 
     [Output too long, omitted for brevity]
 
 # Importing Necessary Libraries
-The script starts by importing a series of libraries required for various tasks, including handling JSON, logging, time tracking, Couchbase connections, embedding generation, and dataset loading. These libraries provide essential functions for working with data, managing database connections, and processing machine learning models.
+This block imports all the required libraries and modules used in the notebook. These include libraries for environment management, data handling, natural language processing, interaction with Couchbase, and embeddings generation. Each library serves a specific function, such as managing environment variables, handling datasets, or interacting with the Couchbase database.
 
 
 ```python
@@ -47,7 +46,6 @@ import json
 import logging
 import os
 import time
-import sys
 import getpass
 from datetime import timedelta
 from uuid import uuid4
@@ -60,7 +58,6 @@ from couchbase.exceptions import (CouchbaseException,
 from couchbase.management.search import SearchIndex
 from couchbase.options import ClusterOptions
 from datasets import load_dataset
-from langchain_cohere import ChatCohere, CohereEmbeddings
 from langchain_core.documents import Document
 from langchain_core.globals import set_llm_cache
 from langchain_core.output_parsers import StrOutputParser
@@ -68,14 +65,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_couchbase.cache import CouchbaseCache
 from langchain_couchbase.vectorstores import CouchbaseVectorStore
+from langchain_openai import ChatOpenAI
+from langchain_voyageai import VoyageAIEmbeddings
 from tqdm import tqdm
 ```
-
-    /usr/local/lib/python3.10/dist-packages/pydantic/_internal/_config.py:341: UserWarning: Valid config keys have changed in V2:
-    * 'allow_population_by_field_name' has been renamed to 'populate_by_name'
-    * 'smart_union' has been removed
-      warnings.warn(message, UserWarning)
-
 
 # Setup Logging
 Logging is configured to track the progress of the script and capture any errors or warnings. This is crucial for debugging and understanding the flow of execution. The logging output includes timestamps, log levels (e.g., INFO, ERROR), and messages that describe what is happening in the script.
@@ -93,29 +86,33 @@ The script also validates that all required inputs are provided, raising an erro
 
 
 ```python
-COHERE_API_KEY = getpass.getpass('Enter your Cohere API key: ')
+VOYAGE_API_KEY = getpass.getpass('Enter your VoyageAI API key: ')
+OPENAI_API_KEY = getpass.getpass('Enter your OpenAI API key: ')
 CB_HOST = input('Enter your Couchbase host (default: couchbase://localhost): ') or 'couchbase://localhost'
 CB_USERNAME = input('Enter your Couchbase username (default: Administrator): ') or 'Administrator'
 CB_PASSWORD = getpass.getpass('Enter your Couchbase password (default: password): ') or 'password'
 CB_BUCKET_NAME = input('Enter your Couchbase bucket name (default: vector-search-testing): ') or 'vector-search-testing'
-INDEX_NAME = input('Enter your index name (default: vector_search_cohere): ') or 'vector_search_cohere'
+INDEX_NAME = input('Enter your index name (default: vector_search_voyage): ') or 'vector_search_voyage'
 SCOPE_NAME = input('Enter your scope name (default: shared): ') or 'shared'
-COLLECTION_NAME = input('Enter your collection name (default: cohere): ') or 'cohere'
+COLLECTION_NAME = input('Enter your collection name (default: voyage): ') or 'voyage'
 CACHE_COLLECTION = input('Enter your cache collection name (default: cache): ') or 'cache'
 
-# Check if the variables are correctly loaded
-if not COHERE_API_KEY:
-    raise ValueError("COHERE_API_KEY is not provided and is required.")
+# Verifying that essential environment variables are set
+if not VOYAGE_API_KEY:
+    raise ValueError("VOYAGE_API_KEY is required.")
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY is required.")
 ```
 
-    Enter your Cohere API key: ··········
+    Enter your VoyageAI API key: ··········
+    Enter your OpenAI API key: ··········
     Enter your Couchbase host (default: couchbase://localhost): couchbases://cb.hlcup4o4jmjr55yf.cloud.couchbase.com
     Enter your Couchbase username (default: Administrator): vector-search-rag-demos
     Enter your Couchbase password (default: password): ··········
     Enter your Couchbase bucket name (default: vector-search-testing): 
-    Enter your index name (default: vector_search_cohere): 
+    Enter your index name (default: vector_search_voyage): 
     Enter your scope name (default: shared): 
-    Enter your collection name (default: cohere): 
+    Enter your collection name (default: voyage): 
     Enter your cache collection name (default: cache): 
 
 
@@ -137,7 +134,7 @@ except Exception as e:
     raise ConnectionError(f"Failed to connect to Couchbase: {str(e)}")
 ```
 
-    2024-08-29 12:37:48,036 - INFO - Successfully connected to Couchbase
+    2024-08-29 12:49:44,091 - INFO - Successfully connected to Couchbase
 
 
 # Setting Up Collections in Couchbase
@@ -192,18 +189,18 @@ setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, COLLECTION_NAME)
 setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, CACHE_COLLECTION)
 ```
 
-    2024-08-29 12:37:48,261 - INFO - Collection 'cohere' already exists.Skipping creation.
-    2024-08-29 12:37:48,300 - INFO - Primary index present or created successfully.
-    2024-08-29 12:37:48,981 - INFO - All documents cleared from the collection.
-    2024-08-29 12:37:49,020 - INFO - Collection 'cache' already exists.Skipping creation.
-    2024-08-29 12:37:49,056 - INFO - Primary index present or created successfully.
-    2024-08-29 12:37:49,104 - INFO - All documents cleared from the collection.
+    2024-08-29 12:49:44,316 - INFO - Collection 'voyage' already exists.Skipping creation.
+    2024-08-29 12:49:44,354 - INFO - Primary index present or created successfully.
+    2024-08-29 12:49:44,997 - INFO - All documents cleared from the collection.
+    2024-08-29 12:49:45,035 - INFO - Collection 'cache' already exists.Skipping creation.
+    2024-08-29 12:49:45,072 - INFO - Primary index present or created successfully.
+    2024-08-29 12:49:45,122 - INFO - All documents cleared from the collection.
 
 
 
 
 
-    <couchbase.collection.Collection at 0x7e794bfcd570>
+    <couchbase.collection.Collection at 0x7ee1dbd96d70>
 
 
 
@@ -212,7 +209,7 @@ The search index definition is loaded from a JSON file. This index defines how t
 
 
 ```python
-# index_definition_path = '/path_to_your_index_file/cohere_index.json'
+# index_definition_path = '/path_to_your_index_file/voyage_index.json'
 
 # Prompt user to upload to google drive
 from google.colab import files
@@ -230,7 +227,7 @@ except Exception as e:
     Upload your index definition file
 
 
-    Saving cohere_index.json to cohere_index.json
+    Saving voyage_index.json to voyage_index.json
 
 
 # Create or Update Search Index
@@ -273,8 +270,8 @@ except InternalServerFailureException as e:
             error_details = json.loads(response_body)
             error_message = error_details.get('error', '')
 
-            if "collection: 'cohere' doesn't belong to scope: 'shared'" in error_message:
-                raise ValueError("Collection 'cohere' does not belong to scope 'shared'. Please check the collection and scope names.")
+            if "collection: 'voyage' doesn't belong to scope: 'shared'" in error_message:
+                raise ValueError("Collection 'voyage' does not belong to scope 'shared'. Please check the collection and scope names.")
 
     except ValueError as ve:
         logging.error(str(ve))
@@ -285,8 +282,8 @@ except InternalServerFailureException as e:
         raise RuntimeError(f"Internal server error while creating/updating search index: {error_message}")
 ```
 
-    2024-08-29 12:37:57,417 - INFO - Index 'vector_search_cohere' found
-    2024-08-29 12:37:57,576 - INFO - Index 'vector_search_cohere' already exists. Skipping creation/update.
+    2024-08-29 12:54:59,624 - INFO - Index 'vector_search_voyage' found
+    2024-08-29 12:54:59,808 - INFO - Index 'vector_search_voyage' already exists. Skipping creation/update.
 
 
 # Load TREC Dataset
@@ -340,25 +337,25 @@ except Exception as e:
     Generating test split:   0%|          | 0/500 [00:00<?, ? examples/s]
 
 
-    2024-08-29 12:38:05,036 - INFO - Successfully loaded TREC dataset with 1000 samples
+    2024-08-29 12:55:22,345 - INFO - Successfully loaded TREC dataset with 1000 samples
 
 
 # Create Embeddings
-Embeddings are created using the Cohere API. Embeddings are vectors (arrays of numbers) that represent the meaning of text in a high-dimensional space. These embeddings are crucial for tasks like semantic search, where the goal is to find text that is semantically similar to a query. The script uses a pre-trained model provided by Cohere to generate embeddings for the text in the TREC dataset.
+Embeddings are created using the Voyage API. Embeddings are vectors (arrays of numbers) that represent the meaning of text in a high-dimensional space. These embeddings are crucial for tasks like semantic search, where the goal is to find text that is semantically similar to a query. The script uses a pre-trained model provided by Voyage to generate embeddings for the text in the TREC dataset.
 
 
 ```python
 try:
-    embeddings = CohereEmbeddings(
-        cohere_api_key=COHERE_API_KEY,
-        model="embed-english-v3.0",
-    )
-    logging.info("Successfully created CohereEmbeddings")
+    embeddings = VoyageAIEmbeddings(voyage_api_key=VOYAGE_API_KEY,model="voyage-large-2")
+    logging.info("Successfully created VoyageAIEmbeddings")
 except Exception as e:
-    raise ValueError(f"Error creating CohereEmbeddings: {str(e)}")
+    raise ValueError(f"Error creating VoyageAIEmbeddings: {str(e)}")
 ```
 
-    2024-08-29 12:38:05,146 - INFO - Successfully created CohereEmbeddings
+    2024-08-29 12:55:22,352 - INFO - Successfully created VoyageAIEmbeddings
+
+
+    batch size None
 
 
 # Set Up Vector Store
@@ -381,7 +378,7 @@ except Exception as e:
     raise ValueError(f"Failed to create vector store: {str(e)}")
 ```
 
-    2024-08-29 12:38:05,749 - INFO - Successfully created vector store
+    2024-08-29 12:55:22,996 - INFO - Successfully created vector store
 
 
 # Save Data to Vector Store in Batches
@@ -392,18 +389,16 @@ To avoid overloading memory, the TREC dataset's text fields are saved to the vec
 ```python
 try:
     batch_size = 50
-    logging.disable(sys.maxsize) # Disable logging to prevent tqdm output
     for i in tqdm(range(0, len(trec['text']), batch_size), desc="Processing Batches"):
         batch = trec['text'][i:i + batch_size]
         documents = [Document(page_content=text) for text in batch]
         uuids = [str(uuid4()) for _ in range(len(documents))]
         vector_store.add_documents(documents=documents, ids=uuids)
-    logging.disable(logging.NOTSET) # Re-enable logging
 except Exception as e:
     raise RuntimeError(f"Failed to save documents to vector store: {str(e)}")
 ```
 
-    Processing Batches: 100%|██████████| 20/20 [00:22<00:00,  1.13s/it]
+    Processing Batches: 100%|██████████| 20/20 [00:51<00:00,  2.58s/it]
 
 
 # Set Up Cache
@@ -425,7 +420,7 @@ except Exception as e:
     raise ValueError(f"Failed to create cache: {str(e)}")
 ```
 
-    2024-08-29 12:38:28,910 - INFO - Successfully created cache
+    2024-08-29 12:56:15,179 - INFO - Successfully created cache
 
 
 # Create Language Model (LLM)
@@ -435,17 +430,17 @@ The script initializes a Cohere language model (LLM) that will be used for gener
 
 ```python
 try:
-    llm = ChatCohere(
-        cohere_api_key=COHERE_API_KEY,
-        model="command",
+    llm = ChatOpenAI(
+        openai_api_key=OPENAI_API_KEY,
+        model="gpt-4o-2024-08-06",
         temperature=0
     )
-    logging.info(f"Successfully created Cohere LLM with model command")
+    logging.info(f"Successfully created OpenAI LLM with model gpt-4o-2024-08-06")
 except Exception as e:
-    raise ValueError(f"Error creating Cohere LLM: {str(e)}")
+    raise ValueError(f"Error creating OpenAI LLM: {str(e)}")
 ```
 
-    2024-08-29 12:38:29,015 - INFO - Successfully created Cohere LLM with model command
+    2024-08-29 12:56:15,284 - INFO - Successfully created OpenAI LLM with model gpt-4o-2024-08-06
 
 
 # Perform Semantic Search
@@ -455,7 +450,7 @@ In the provided code, the search process begins by recording the start time, fol
 
 
 ```python
-query = "Why do heavier objects travel downhill faster?"
+query = "What caused the 1929 Great Depression?"
 
 try:
     # Perform the semantic search
@@ -476,22 +471,21 @@ except Exception as e:
     raise RuntimeError(f"Unexpected error: {str(e)}")
 ```
 
-    2024-08-29 12:38:29,072 - INFO - HTTP Request: POST https://api.cohere.com/v1/embed "HTTP/1.1 200 OK"
-    2024-08-29 12:38:29,273 - INFO - Semantic search completed in 0.25 seconds
+    2024-08-29 12:56:15,670 - INFO - Semantic search completed in 0.38 seconds
 
 
     
-    Semantic Search Results (completed in 0.25 seconds):
-    Distance: 0.8184, Text: Why do heavier objects travel downhill faster ?
-    Distance: 0.3748, Text: What is a fear of passing high objects ?
-    Distance: 0.3322, Text: How fast is light ?
-    Distance: 0.3047, Text: How fast does the fastest car go ?
-    Distance: 0.2881, Text: What is the speed of the Mississippi River ?
-    Distance: 0.2881, Text: What is the speed of the Mississippi River ?
-    Distance: 0.2881, Text: What is the speed of the Mississippi River ?
-    Distance: 0.2872, Text: What makes a tornado turn ?
-    Distance: 0.2637, Text: What is the second hardest substance ?
-    Distance: 0.2623, Text: What makes thunder ?
+    Semantic Search Results (completed in 0.38 seconds):
+    Distance: 0.8595, Text: Why did the world enter a global depression in 1929 ?
+    Distance: 0.8011, Text: When was `` the Great Depression '' ?
+    Distance: 0.7282, Text: What were popular songs and types of songs in the 1920s ?
+    Distance: 0.7145, Text: What are some of the significant historical events of the 1990s ?
+    Distance: 0.7136, Text: What crop failure caused the Irish Famine ?
+    Distance: 0.6997, Text: What historical event happened in Dogtown in 1899 ?
+    Distance: 0.6914, Text: What happened during the Blackhawk Indian war of 1832 ?
+    Distance: 0.6894, Text: What is considered the costliest disaster the insurance industry has ever faced ?
+    Distance: 0.6879, Text: What Hollywood dog died in the arms of Jean Harlow in 1932 ?
+    Distance: 0.6867, Text: How much was the minimum wage in 1991 ?
 
 
 # Retrieval-Augmented Generation (RAG) with Couchbase and Langchain
@@ -504,10 +498,8 @@ The language model, equipped with the context from the retrieved documents, gene
 try:
     template = """You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
     {context}
-
     Question: {question}"""
     prompt = ChatPromptTemplate.from_template(template)
-
     rag_chain = (
         {"context": vector_store.as_retriever(), "question": RunnablePassthrough()}
         | prompt
@@ -516,38 +508,34 @@ try:
     )
     logging.info("Successfully created RAG chain")
 except Exception as e:
-    raise ValueError(f"Error creating RAG chain: {str(e)}")
+    raise ValueError(f"Error creating LLM chains: {str(e)}")
 ```
 
-    2024-08-29 12:38:29,284 - INFO - Successfully created RAG chain
+    2024-08-29 12:56:15,681 - INFO - Successfully created RAG chain
 
 
 
 ```python
 try:
     # Get RAG response
-    logging.disable(sys.maxsize) # Disable logging
     start_time = time.time()
     rag_response = rag_chain.invoke(query)
     rag_elapsed_time = time.time() - start_time
+    logging.info(f"RAG response generated in {rag_elapsed_time:.2f} seconds")
+
     print(f"RAG Response: {rag_response}")
-    print(f"RAG response generated in {rag_elapsed_time:.2f} seconds")
+
+except CouchbaseException as e:
+    raise RuntimeError(f"Error performing semantic search: {str(e)}")
 except Exception as e:
-    raise ValueError(f"Error generating RAG response: {str(e)}")
+    raise RuntimeError(f"Unexpected error: {str(e)}")
 ```
 
-    RAG Response: Heavier objects travel downhill faster due to gravitational forces. As an object moves downhill, gravity accelerates the object, and velocity increases. The force of gravity is proportional to the object's mass, meaning heavier objects experience a more substantial gravitational force, leading to faster downhill speeds.
-    
-    This relationship, known as the gravitational force equation, explains why heavier objects descend faster than lighter ones- 
-    
-    ```
-    force of gravity = gravitational force = acceleration due to gravity * mass = F = m*g
-    ```
-    
-    In this equation, the acceleration due to gravity is a constant value represented by `g`, and the mass `m` represents the object's mass. Consequently, the force of gravity is directly proportional to the object's mass, explaining heavier objects's downhill speed.
-    
-    As a generic response, this explains the fundamental principle of gravity's impact on downhill speed, however, on a broader context, this answer refers to objects moving along a gravitational field, such as a hill.
-    RAG response generated in 6.45 seconds
+    2024-08-29 12:56:17,464 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+    2024-08-29 12:56:17,518 - INFO - RAG response generated in 1.83 seconds
+
+
+    RAG Response: The Great Depression, which began in 1929, was caused by a combination of factors including the stock market crash of October 1929, bank failures, reduction in consumer spending and investment, and flawed economic policies. These factors led to a severe worldwide economic downturn.
 
 
 # Using Couchbase as a caching mechanism
@@ -561,7 +549,7 @@ try:
     queries = [
         "How does photosynthesis work?",
         "What is the capital of France?",
-        "Why do heavier objects travel downhill faster?",  # Repeated query
+        "What caused the 1929 Great Depression?",  # Repeated query
         "How does photosynthesis work?",  # Repeated query
     ]
 
@@ -578,44 +566,36 @@ except Exception as e:
 
     
     Query 1: How does photosynthesis work?
-    Response: Photosynthesis is a process by which plants convert sunlight into chemical energy, specifically glucose. The process occurs in special structures called chloroplasts within the plant's cells. Here are the steps behind photosynthesis:
+
+
+    2024-08-29 12:56:21,284 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+
+
+    Response: Photosynthesis is a process used by plants, algae, and some bacteria to convert light energy, usually from the sun, into chemical energy in the form of glucose. This process involves the absorption of light by chlorophyll, a green pigment in the chloroplasts of plant cells. During photosynthesis, carbon dioxide from the air and water from the soil are combined using the energy from sunlight to produce glucose and oxygen. The overall chemical equation for photosynthesis is:
     
-    1. Absorption of sunlight: Chlorophyll, a pigment found in chloroplasts, captures the energy of sunlight.
+    6CO2 + 6H2O + light energy → C6H12O6 + 6O2
     
-    2. Light reaction: The absorbed sunlight energizes electrons within the chloroplasts, initiating a series of complex reactions. During this stage, water molecules are split into hydrogen ions (H+), electrons (e^-), and oxygen atoms (O). The oxygen is released into the atmosphere as a byproduct, while the hydrogen ions and electrons are utilized in the next stage.
-    
-    3. Carbon fixation: The energized hydrogen ions and electrons combine with carbon dioxide (CO2) in a process known as the Calvin cycle. Through a series of enzyme-mediated reactions, this combination produces glucose and other organic molecules that serve as the primary energy source and building blocks for the plant's growth and development. 
-    
-    Overall, the essence of photosynthesis is the transformation of sunlight, water, and carbon dioxide into chemical energy (glucose) and oxygen. This process is essential for plant life and also serves as the primary energy source for almost all life on Earth, as plants are the primary producers in many ecosystems, forming the base of the food chain.
-    Time taken: 9.02 seconds
+    This process is crucial for the survival of plants and for providing oxygen and organic compounds for other living organisms.
+    Time taken: 3.80 seconds
     
     Query 2: What is the capital of France?
-    Response: Paris is the capital of France.
-    Time taken: 0.67 seconds
+
+
+    2024-08-29 12:56:22,138 - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+
+
+    Response: The capital of France is Paris.
+    Time taken: 0.86 seconds
     
-    Query 3: Why do heavier objects travel downhill faster?
-    Response: Heavier objects travel downhill faster due to gravitational forces. As an object moves downhill, gravity accelerates the object, and velocity increases. The force of gravity is proportional to the object's mass, meaning heavier objects experience a more substantial gravitational force, leading to faster downhill speeds.
-    
-    This relationship, known as the gravitational force equation, explains why heavier objects descend faster than lighter ones- 
-    
-    ```
-    force of gravity = gravitational force = acceleration due to gravity * mass = F = m*g
-    ```
-    
-    In this equation, the acceleration due to gravity is a constant value represented by `g`, and the mass `m` represents the object's mass. Consequently, the force of gravity is directly proportional to the object's mass, explaining heavier objects's downhill speed.
-    
-    As a generic response, this explains the fundamental principle of gravity's impact on downhill speed, however, on a broader context, this answer refers to objects moving along a gravitational field, such as a hill.
-    Time taken: 0.46 seconds
+    Query 3: What caused the 1929 Great Depression?
+    Response: The Great Depression, which began in 1929, was caused by a combination of factors including the stock market crash of October 1929, bank failures, reduction in consumer spending and investment, and flawed economic policies. These factors led to a severe worldwide economic downturn.
+    Time taken: 0.57 seconds
     
     Query 4: How does photosynthesis work?
-    Response: Photosynthesis is a process by which plants convert sunlight into chemical energy, specifically glucose. The process occurs in special structures called chloroplasts within the plant's cells. Here are the steps behind photosynthesis:
+    Response: Photosynthesis is a process used by plants, algae, and some bacteria to convert light energy, usually from the sun, into chemical energy in the form of glucose. This process involves the absorption of light by chlorophyll, a green pigment in the chloroplasts of plant cells. During photosynthesis, carbon dioxide from the air and water from the soil are combined using the energy from sunlight to produce glucose and oxygen. The overall chemical equation for photosynthesis is:
     
-    1. Absorption of sunlight: Chlorophyll, a pigment found in chloroplasts, captures the energy of sunlight.
+    6CO2 + 6H2O + light energy → C6H12O6 + 6O2
     
-    2. Light reaction: The absorbed sunlight energizes electrons within the chloroplasts, initiating a series of complex reactions. During this stage, water molecules are split into hydrogen ions (H+), electrons (e^-), and oxygen atoms (O). The oxygen is released into the atmosphere as a byproduct, while the hydrogen ions and electrons are utilized in the next stage.
-    
-    3. Carbon fixation: The energized hydrogen ions and electrons combine with carbon dioxide (CO2) in a process known as the Calvin cycle. Through a series of enzyme-mediated reactions, this combination produces glucose and other organic molecules that serve as the primary energy source and building blocks for the plant's growth and development. 
-    
-    Overall, the essence of photosynthesis is the transformation of sunlight, water, and carbon dioxide into chemical energy (glucose) and oxygen. This process is essential for plant life and also serves as the primary energy source for almost all life on Earth, as plants are the primary producers in many ecosystems, forming the base of the food chain.
-    Time taken: 0.26 seconds
+    This process is crucial for the survival of plants and for providing oxygen and organic compounds for other living organisms.
+    Time taken: 0.42 seconds
 

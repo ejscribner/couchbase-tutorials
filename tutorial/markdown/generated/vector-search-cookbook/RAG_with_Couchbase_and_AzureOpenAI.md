@@ -1,11 +1,11 @@
 ---
 # frontmatter
-path: "/tutorial-openai-claude-couchbase-rag"
-title: Retrieval-Augmented Generation (RAG) with Couchbase, OpenAI, and Claude
-short_title: RAG with Couchbase, OpenAI, and Claude
+path: "/tutorial-azure-openai-couchbase-rag"
+title: Retrieval-Augmented Generation (RAG) with Couchbase and Azure OpenAI
+short_title: RAG with Couchbase and Azure OpenAI
 description:
-  - Learn how to build a semantic search engine using Couchbase, OpenAI embeddings, and Anthropic's Claude.
-  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with OpenAI embeddings and use Claude as the language model.
+  - Learn how to build a semantic search engine using Couchbase and Azure OpenAI.
+  - This tutorial demonstrates how to integrate Couchbase's vector search capabilities with Azure OpenAI embeddings.
   - You'll understand how to perform Retrieval-Augmented Generation (RAG) using LangChain and Couchbase.
 content_type: tutorial
 filter: sdk
@@ -25,14 +25,14 @@ length: 60 Mins
 
 
 # Introduction
-In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database, [OpenAI](https://openai.com/) as the AI-powered embedding and [Anthropic](https://claude.ai/) as the language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
+In this guide, we will walk you through building a powerful semantic search engine using Couchbase as the backend database, [AzureOpenAI](https://azure.microsoft.com/) as the AI-powered embedding and language model provider. Semantic search goes beyond simple keyword matching by understanding the context and meaning behind the words in a query, making it an essential tool for applications that require intelligent information retrieval. This tutorial is designed to be beginner-friendly, with clear, step-by-step instructions that will equip you with the knowledge to create a fully functional semantic search system from scratch.
 
 # Setting the Stage: Installing Necessary Libraries
-To build our semantic search engine, we need a robust set of tools. The libraries we install handle everything from connecting to databases to performing complex machine learning tasks. Each library has a specific role: Couchbase libraries manage database operations, LangChain handles AI model integrations, and OpenAI provides advanced AI models for generating embeddings and Claude(by Anthropic) for understanding natural language. By setting up these libraries, we ensure our environment is equipped to handle the data-intensive and computationally complex tasks required for semantic search.
+To build our semantic search engine, we need a robust set of tools. The libraries we install handle everything from connecting to databases to performing complex machine learning tasks. Each library has a specific role: Couchbase libraries manage database operations, LangChain handles AI model integrations, and AzureOpenAI provides advanced AI models for generating embeddings and understanding natural language. By setting up these libraries, we ensure our environment is equipped to handle the data-intensive and computationally complex tasks required for semantic search.
 
 
 ```python
-!pip install datasets langchain-couchbase langchain-anthropic langchain-openai
+!pip install datasets langchain-couchbase langchain-openai
 ```
 
     [Output too long, omitted for brevity]
@@ -42,28 +42,32 @@ The script starts by importing a series of libraries required for various tasks,
 
 
 ```python
+import getpass
 import json
 import logging
-import time
 import sys
-import getpass
+import time
 from datetime import timedelta
 from uuid import uuid4
 
 from couchbase.auth import PasswordAuthenticator
 from couchbase.cluster import Cluster
-from couchbase.exceptions import CouchbaseException, InternalServerFailureException, QueryIndexAlreadyExistsException
+from couchbase.exceptions import (
+    CouchbaseException,
+    InternalServerFailureException,
+    QueryIndexAlreadyExistsException,
+)
 from couchbase.management.search import SearchIndex
 from couchbase.options import ClusterOptions
 from datasets import load_dataset
-from langchain_anthropic import ChatAnthropic
 from langchain_core.documents import Document
 from langchain_core.globals import set_llm_cache
-from langchain_core.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_couchbase.cache import CouchbaseCache
 from langchain_couchbase.vectorstores import CouchbaseVectorStore
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from tqdm import tqdm
 ```
 
@@ -76,40 +80,43 @@ Logging is configured to track the progress of the script and capture any errors
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
 ```
 
-# Loading Sensitive Informnation
+# Loading Sensitive Information
 In this section, we prompt the user to input essential configuration settings needed. These settings include sensitive information like API keys, database credentials, and specific configuration names. Instead of hardcoding these details into the script, we request the user to provide them at runtime, ensuring flexibility and security.
 
 The script also validates that all required inputs are provided, raising an error if any crucial information is missing. This approach ensures that your integration is both secure and correctly configured without hardcoding sensitive information, enhancing the overall security and maintainability of your code.
 
 
 ```python
-ANTHROPIC_API_KEY = getpass.getpass('Enter your Anthropic API key: ')
-OPENAI_API_KEY = getpass.getpass('Enter your OpenAI API key: ')
+AZURE_OPENAI_KEY = getpass.getpass('Enter your Azure OpenAI Key: ')
+AZURE_OPENAI_ENDPOINT = input('Enter your Azure OpenAI Endpoint: ')
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = input('Enter your Azure OpenAI Embedding Deployment: ')
+AZURE_OPENAI_CHAT_DEPLOYMENT = input('Enter your Azure OpenAI Chat Deployment: ')
+
 CB_HOST = input('Enter your Couchbase host (default: couchbase://localhost): ') or 'couchbase://localhost'
 CB_USERNAME = input('Enter your Couchbase username (default: Administrator): ') or 'Administrator'
 CB_PASSWORD = getpass.getpass('Enter your Couchbase password (default: password): ') or 'password'
 CB_BUCKET_NAME = input('Enter your Couchbase bucket name (default: vector-search-testing): ') or 'vector-search-testing'
-INDEX_NAME = input('Enter your index name (default: vector_search_claude): ') or 'vector_search_claude'
+INDEX_NAME = input('Enter your index name (default: vector_search_azure): ') or 'vector_search_azure'
 SCOPE_NAME = input('Enter your scope name (default: shared): ') or 'shared'
-COLLECTION_NAME = input('Enter your collection name (default: claude): ') or 'claude'
+COLLECTION_NAME = input('Enter your collection name (default: azure): ') or 'azure'
 CACHE_COLLECTION = input('Enter your cache collection name (default: cache): ') or 'cache'
 
 # Check if the variables are correctly loaded
-if not ANTHROPIC_API_KEY:
-    raise ValueError("ANTHROPIC_API_KEY is not set in the environment.")
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY is not set in the environment.")
+if not all([AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT, AZURE_OPENAI_CHAT_DEPLOYMENT]):
+    raise ValueError("Missing required Azure OpenAI variables")
 ```
 
-    Enter your Anthropic API key: ··········
-    Enter your OpenAI API key: ··········
+    Enter your Azure OpenAI Key: ··········
+    Enter your Azure OpenAI Endpoint: https://first-couchbase-instance.openai.azure.com/
+    Enter your Azure OpenAI Embedding Deployment: text-embedding-ada-002
+    Enter your Azure OpenAI Chat Deployment: gpt-4o
     Enter your Couchbase host (default: couchbase://localhost): couchbases://cb.hlcup4o4jmjr55yf.cloud.couchbase.com
     Enter your Couchbase username (default: Administrator): vector-search-rag-demos
     Enter your Couchbase password (default: password): ··········
     Enter your Couchbase bucket name (default: vector-search-testing): 
-    Enter your index name (default: vector_search_claude): 
+    Enter your index name (default: vector_search_azure): 
     Enter your scope name (default: shared): 
-    Enter your collection name (default: claude): 
+    Enter your collection name (default: azure): 
     Enter your cache collection name (default: cache): 
 
 
@@ -130,7 +137,7 @@ except Exception as e:
     raise ConnectionError(f"Failed to connect to Couchbase: {str(e)}")
 ```
 
-    2024-08-29 13:33:54,574 - INFO - Successfully connected to Couchbase
+    2024-09-06 07:29:16,632 - INFO - Successfully connected to Couchbase
 
 
 # Setting Up Collections in Couchbase
@@ -184,18 +191,18 @@ setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, COLLECTION_NAME)
 setup_collection(cluster, CB_BUCKET_NAME, SCOPE_NAME, CACHE_COLLECTION)
 ```
 
-    2024-08-29 13:33:54,801 - INFO - Collection 'claude' already exists.Skipping creation.
-    2024-08-29 13:33:54,836 - INFO - Primary index present or created successfully.
-    2024-08-29 13:33:55,491 - INFO - All documents cleared from the collection.
-    2024-08-29 13:33:55,529 - INFO - Collection 'cache' already exists.Skipping creation.
-    2024-08-29 13:33:55,567 - INFO - Primary index present or created successfully.
-    2024-08-29 13:33:55,605 - INFO - All documents cleared from the collection.
+    2024-09-06 07:29:17,029 - INFO - Collection 'azure' already exists.Skipping creation.
+    2024-09-06 07:29:17,095 - INFO - Primary index present or created successfully.
+    2024-09-06 07:29:17,775 - INFO - All documents cleared from the collection.
+    2024-09-06 07:29:17,841 - INFO - Collection 'cache' already exists.Skipping creation.
+    2024-09-06 07:29:17,907 - INFO - Primary index present or created successfully.
+    2024-09-06 07:29:17,973 - INFO - All documents cleared from the collection.
 
 
 
 
 
-    <couchbase.collection.Collection at 0x7c1c3a201d20>
+    <couchbase.collection.Collection at 0x79d78eb25420>
 
 
 
@@ -205,7 +212,7 @@ Semantic search requires an efficient way to retrieve relevant documents based o
 
 
 ```python
-# index_definition_path = '/path_to_your_index_file/claude_index.json'
+# index_definition_path = '/path_to_your_index_file/azure_index.json'
 
 # Prompt user to upload to google drive
 from google.colab import files
@@ -223,7 +230,7 @@ except Exception as e:
     Upload your index definition file
 
 
-    Saving claude_index.json to claude_index.json
+    Saving azure_index.json to azure_index.json
 
 
 # Creating or Updating Search Indexes
@@ -266,8 +273,8 @@ except InternalServerFailureException as e:
             error_details = json.loads(response_body)
             error_message = error_details.get('error', '')
 
-            if "collection: 'claude' doesn't belong to scope: 'shared'" in error_message:
-                raise ValueError("Collection 'claude' does not belong to scope 'shared'. Please check the collection and scope names.")
+            if "collection: 'azure' doesn't belong to scope: 'shared'" in error_message:
+                raise ValueError("Collection 'azure' does not belong to scope 'shared'. Please check the collection and scope names.")
 
     except ValueError as ve:
         logging.error(str(ve))
@@ -278,8 +285,8 @@ except InternalServerFailureException as e:
         raise RuntimeError(f"Internal server error while creating/updating search index: {error_message}")
 ```
 
-    2024-08-29 13:35:01,109 - INFO - Index 'vector_search_claude' found
-    2024-08-29 13:35:01,317 - INFO - Index 'vector_search_claude' already exists. Skipping creation/update.
+    2024-09-06 07:30:01,070 - INFO - Index 'vector_search_azure' found
+    2024-09-06 07:30:01,373 - INFO - Index 'vector_search_azure' already exists. Skipping creation/update.
 
 
 # Load the TREC Dataset
@@ -334,28 +341,32 @@ except Exception as e:
     Generating test split:   0%|          | 0/500 [00:00<?, ? examples/s]
 
 
-    2024-08-29 13:35:10,138 - INFO - Successfully loaded TREC dataset with 1000 samples
+    2024-09-06 07:30:12,308 - INFO - Successfully loaded TREC dataset with 1000 samples
 
 
-# Creating OpenAI Embeddings
-Embeddings are at the heart of semantic search. They are numerical representations of text that capture the semantic meaning of the words and phrases. Unlike traditional keyword-based search, which looks for exact matches, embeddings allow our search engine to understand the context and nuances of language, enabling it to retrieve documents that are semantically similar to the query, even if they don't contain the exact keywords. By creating embeddings using OpenAI, we equip our search engine with the ability to understand and process natural language in a way that's much closer to how humans understand language. This step transforms our raw text data into a format that the search engine can use to find and rank relevant documents.
+# Creating AzureOpenAI Embeddings
+Embeddings are at the heart of semantic search. They are numerical representations of text that capture the semantic meaning of the words and phrases. Unlike traditional keyword-based search, which looks for exact matches, embeddings allow our search engine to understand the context and nuances of language, enabling it to retrieve documents that are semantically similar to the query, even if they don't contain the exact keywords. By creating embeddings using AzureOpenAI, we equip our search engine with the ability to understand and process natural language in a way that's much closer to how humans understand language. This step transforms our raw text data into a format that the search engine can use to find and rank relevant documents.
 
 
 
 
 ```python
 try:
-    embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY, model='text-embedding-ada-002')
-    logging.info("Successfully created OpenAIEmbeddings")
+    embeddings = AzureOpenAIEmbeddings(
+        deployment=AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+        openai_api_key=AZURE_OPENAI_KEY,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT
+    )
+    logging.info("Successfully created AzureOpenAIEmbeddings")
 except Exception as e:
-    raise ValueError(f"Error creating OpenAIEmbeddings: {str(e)}")
+    raise ValueError(f"Error creating AzureOpenAIEmbeddings: {str(e)}")
 ```
 
-    2024-08-29 13:35:10,317 - INFO - Successfully created OpenAIEmbeddings
+    2024-09-06 07:30:13,014 - INFO - Successfully created AzureOpenAIEmbeddings
 
 
 #  Setting Up the Couchbase Vector Store
-A vector store is where we'll keep our embeddings. Unlike the FTS index, which is used for text-based search, the vector store is specifically designed to handle embeddings and perform similarity searches. When a user inputs a query, the search engine converts the query into an embedding and compares it against the embeddings stored in the vector store. This allows the engine to find documents that are semantically similar to the query, even if they don't contain the exact same words. By setting up the vector store in Couchbase, we create a powerful tool that enables our search engine to understand and retrieve information based on the meaning and context of the query, rather than just the specific words used.
+The vector store is set up to manage the embeddings created in the previous step. The vector store is essentially a database optimized for storing and retrieving high-dimensional vectors. In this case, the vector store is built on top of Couchbase, allowing the script to store the embeddings in a way that can be efficiently searched.
 
 
 ```python
@@ -374,7 +385,7 @@ except Exception as e:
 
 ```
 
-    2024-08-29 13:35:10,989 - INFO - Successfully created vector store
+    2024-09-06 07:30:14,043 - INFO - Successfully created vector store
 
 
 # Saving Data to the Vector Store
@@ -397,7 +408,7 @@ except Exception as e:
     raise RuntimeError(f"Failed to save documents to vector store: {str(e)}")
 ```
 
-    Processing Batches: 100%|██████████| 20/20 [00:16<00:00,  1.22it/s]
+    Processing Batches: 100%|██████████| 20/20 [00:37<00:00,  1.87s/it]
 
 
 # Setting Up a Couchbase Cache
@@ -421,11 +432,11 @@ except Exception as e:
     raise ValueError(f"Failed to create cache: {str(e)}")
 ```
 
-    2024-08-29 13:35:27,788 - INFO - Successfully created cache
+    2024-09-06 07:30:52,165 - INFO - Successfully created cache
 
 
-# Using the Claude 3.5 Sonnet Language Model (LLM)
-Language models are AI systems that are trained to understand and generate human language. We'll be using the `Claude 3.5 Sonnet` language model to process user queries and generate meaningful responses. This model is a key component of our semantic search engine, allowing it to go beyond simple keyword matching and truly understand the intent behind a query. By creating this language model, we equip our search engine with the ability to interpret complex queries, understand the nuances of language, and provide more accurate and contextually relevant responses.
+# Using the AzureChatOpenAI Language Model (LLM)
+Language models are AI systems that are trained to understand and generate human language. We'll be using `AzureChatOpenAI` language model to process user queries and generate meaningful responses. This model is a key component of our semantic search engine, allowing it to go beyond simple keyword matching and truly understand the intent behind a query. By creating this language model, we equip our search engine with the ability to interpret complex queries, understand the nuances of language, and provide more accurate and contextually relevant responses.
 
 The language model's ability to understand context and generate coherent responses is what makes our search engine truly intelligent. It can not only find the right information but also present it in a way that is useful and understandable to the user.
 
@@ -434,14 +445,18 @@ The language model's ability to understand context and generate coherent respons
 
 ```python
 try:
-    llm = ChatAnthropic(temperature=0, anthropic_api_key=ANTHROPIC_API_KEY, model_name='claude-3-5-sonnet-20240620')
-    logging.info("Successfully created ChatAnthropic")
+    llm = AzureChatOpenAI(
+        deployment_name=AZURE_OPENAI_CHAT_DEPLOYMENT,
+        openai_api_key=AZURE_OPENAI_KEY,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        openai_api_version="2024-07-01-preview"
+    )
+    logging.info("Successfully created Azure OpenAI Chat model")
 except Exception as e:
-    logging.error(f"Error creating ChatAnthropic: {str(e)}. Please check your API key and network connection.")
-    raise
+    raise ValueError(f"Error creating Azure OpenAI Chat model: {str(e)}")
 ```
 
-    2024-08-29 13:35:27,933 - INFO - Successfully created ChatAnthropic
+    2024-09-06 07:30:52,298 - INFO - Successfully created Azure OpenAI Chat model
 
 
 # Perform Semantic Search
@@ -472,54 +487,45 @@ except Exception as e:
     raise RuntimeError(f"Unexpected error: {str(e)}")
 ```
 
-    2024-08-29 13:35:28,094 - INFO - HTTP Request: POST https://api.openai.com/v1/embeddings "HTTP/1.1 200 OK"
-    2024-08-29 13:35:28,285 - INFO - Semantic search completed in 0.34 seconds
+    2024-09-06 07:30:52,532 - INFO - HTTP Request: POST https://first-couchbase-instance.openai.azure.com//openai/deployments/text-embedding-ada-002/embeddings?api-version=2023-05-15 "HTTP/1.1 200 OK"
+    2024-09-06 07:30:52,839 - INFO - Semantic search completed in 0.53 seconds
 
 
     
-    Semantic Search Results (completed in 0.34 seconds):
+    Semantic Search Results (completed in 0.53 seconds):
     Distance: 0.9178, Text: Why did the world enter a global depression in 1929 ?
     Distance: 0.8714, Text: When was `` the Great Depression '' ?
-    Distance: 0.8115, Text: What crop failure caused the Irish Famine ?
-    Distance: 0.7985, Text: What historical event happened in Dogtown in 1899 ?
+    Distance: 0.8113, Text: What crop failure caused the Irish Famine ?
+    Distance: 0.7984, Text: What historical event happened in Dogtown in 1899 ?
     Distance: 0.7917, Text: What caused the Lynmouth floods ?
-    Distance: 0.7912, Text: When did the Dow first reach ?
-    Distance: 0.7908, Text: When was the first Wall Street Journal published ?
+    Distance: 0.7915, Text: When was the first Wall Street Journal published ?
+    Distance: 0.7911, Text: When did the Dow first reach ?
     Distance: 0.7885, Text: What were popular songs and types of songs in the 1920s ?
     Distance: 0.7857, Text: When did World War I start ?
     Distance: 0.7842, Text: What caused Harry Houdini 's death ?
 
 
-# Retrieval-Augmented Generation (RAG) with Couchbase and LangChain
+# Retrieval-Augmented Generation (RAG) with Couchbase and Langchain
 Couchbase and LangChain can be seamlessly integrated to create RAG (Retrieval-Augmented Generation) chains, enhancing the process of generating contextually relevant responses. In this setup, Couchbase serves as the vector store, where embeddings of documents are stored. When a query is made, LangChain retrieves the most relevant documents from Couchbase by comparing the query’s embedding with the stored document embeddings. These documents, which provide contextual information, are then passed to a generative language model within LangChain.
 
 The language model, equipped with the context from the retrieved documents, generates a response that is both informed and contextually accurate. This integration allows the RAG chain to leverage Couchbase’s efficient storage and retrieval capabilities, while LangChain handles the generation of responses based on the context provided by the retrieved documents. Together, they create a powerful system that can deliver highly relevant and accurate answers by combining the strengths of both retrieval and generation.
 
 
 ```python
-system_template = "You are a helpful assistant that answers questions based on the provided context."
-system_message_prompt = SystemMessagePromptTemplate.from_template(system_template)
-
-human_template = "Context: {context}\n\nQuestion: {question}"
-human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
-
-chat_prompt = ChatPromptTemplate.from_messages([
-    system_message_prompt,
-    human_message_prompt
-])
-
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
+template = """You are a helpful bot. If you cannot answer based on the context provided, respond with a generic answer. Answer the question as truthfully as possible using the context below:
+    {context}
+    Question: {question}"""
+prompt = ChatPromptTemplate.from_template(template)
 rag_chain = (
-    {"context": lambda x: format_docs(vector_store.similarity_search(x)), "question": RunnablePassthrough()}
-    | chat_prompt
+    {"context": vector_store.as_retriever(), "question": RunnablePassthrough()}
+    | prompt
     | llm
+    | StrOutputParser()
 )
 logging.info("Successfully created RAG chain")
 ```
 
-    2024-08-29 13:35:28,305 - INFO - Successfully created RAG chain
+    2024-09-06 07:30:52,860 - INFO - Successfully created RAG chain
 
 
 
@@ -530,19 +536,12 @@ start_time = time.time()
 rag_response = rag_chain.invoke(query)
 rag_elapsed_time = time.time() - start_time
 
-print(f"RAG Response: {rag_response.content}")
+print(f"RAG Response: {rag_response}")
 print(f"RAG response generated in {rag_elapsed_time:.2f} seconds")
 ```
 
-    RAG Response: Based on the context provided, the world entered a global depression in 1929. This event is commonly known as "the Great Depression." While the context doesn't provide specific causes for the Great Depression, it's generally understood that it was triggered by a combination of factors, including:
-    
-    1. The stock market crash of 1929
-    2. Bank failures
-    3. A decline in consumer spending and investment
-    4. International economic issues, such as the gold standard and trade policies
-    
-    It's important to note that the exact causes of the Great Depression are complex and still debated by historians and economists. The context doesn't provide detailed information about the specific triggers, but it does confirm that 1929 was the year when the global depression began.
-    RAG response generated in 3.16 seconds
+    RAG Response: The 1929 Great Depression was caused by a combination of factors, including the stock market crash of October 1929, bank failures, reduction in consumer spending and investment, and poor economic policies.
+    RAG response generated in 2.32 seconds
 
 
 # Using Couchbase as a caching mechanism
@@ -556,6 +555,7 @@ For subsequent requests with the same query, the system checks Couchbase first. 
 try:
     queries = [
         "Why do heavier objects travel downhill faster?",
+        "What is the capital of France?",
         "What caused the 1929 Great Depression?", # Repeated query
         "Why do heavier objects travel downhill faster?",  # Repeated query
     ]
@@ -563,10 +563,9 @@ try:
     for i, query in enumerate(queries, 1):
         print(f"\nQuery {i}: {query}")
         start_time = time.time()
-
         response = rag_chain.invoke(query)
         elapsed_time = time.time() - start_time
-        print(f"Response: {response.content}")
+        print(f"Response: {response}")
         print(f"Time taken: {elapsed_time:.2f} seconds")
 except Exception as e:
     raise ValueError(f"Error generating RAG response: {str(e)}")
@@ -574,51 +573,20 @@ except Exception as e:
 
     
     Query 1: Why do heavier objects travel downhill faster?
-    Response: Based on the provided context, I can answer the question about why heavier objects travel downhill faster.
+    Response: Heavier objects travel downhill faster primarily due to the force of gravity acting on them. Gravity accelerates all objects at the same rate, but heavier objects may encounter less air resistance relative to their weight, allowing them to maintain higher speeds as they descend. Additionally, factors such as surface friction and the distribution of mass can influence the speed at which an object travels downhill.
+    Time taken: 61.73 seconds
     
-    Heavier objects generally travel downhill faster due to the relationship between mass, gravity, and friction. Here's a more detailed explanation:
+    Query 2: What is the capital of France?
+    Response: The capital of France is Paris.
+    Time taken: 60.63 seconds
     
-    1. Gravitational force: The force of gravity acting on an object is proportional to its mass. Heavier objects have more mass, so they experience a stronger gravitational pull.
+    Query 3: What caused the 1929 Great Depression?
+    Response: The 1929 Great Depression was caused by a combination of factors, including the stock market crash of October 1929, bank failures, reduction in consumer spending and investment, and poor economic policies.
+    Time taken: 1.49 seconds
     
-    2. Friction: While friction does act against the motion of objects rolling downhill, it doesn't increase proportionally with mass. This means that the ratio of gravitational force to friction is generally more favorable for heavier objects.
-    
-    3. Inertia: Heavier objects have more inertia, which means they resist changes in motion more than lighter objects. Once they start moving, they tend to keep moving more easily.
-    
-    4. Air resistance: While air resistance does affect objects moving downhill, its effect is relatively smaller on heavier objects compared to lighter ones, as the ratio of air resistance to mass is lower for heavier objects.
-    
-    As a result of these factors, heavier objects typically accelerate faster and reach higher speeds when traveling downhill compared to lighter objects of similar shape and size.
-    
-    It's important to note that in a vacuum (where there's no air resistance), all objects would fall at the same rate regardless of their mass. However, in real-world conditions with air resistance and friction, heavier objects generally move faster downhill.
-    Time taken: 5.61 seconds
-    
-    Query 2: What caused the 1929 Great Depression?
-    Response: Based on the context provided, the world entered a global depression in 1929. This event is commonly known as "the Great Depression." While the context doesn't provide specific causes for the Great Depression, it's generally understood that it was triggered by a combination of factors, including:
-    
-    1. The stock market crash of 1929
-    2. Bank failures
-    3. A decline in consumer spending and investment
-    4. International economic issues, such as the gold standard and trade policies
-    
-    It's important to note that the exact causes of the Great Depression are complex and still debated by historians and economists. The context doesn't provide detailed information about the specific triggers, but it does confirm that 1929 was the year when the global depression began.
-    Time taken: 2.22 seconds
-    
-    Query 3: Why do heavier objects travel downhill faster?
-    Response: Based on the provided context, I can answer the question about why heavier objects travel downhill faster.
-    
-    Heavier objects generally travel downhill faster due to the relationship between mass, gravity, and friction. Here's a more detailed explanation:
-    
-    1. Gravitational force: The force of gravity acting on an object is proportional to its mass. Heavier objects have more mass, so they experience a stronger gravitational pull.
-    
-    2. Friction: While friction does act against the motion of objects rolling downhill, it doesn't increase proportionally with mass. This means that the ratio of gravitational force to friction is generally more favorable for heavier objects.
-    
-    3. Inertia: Heavier objects have more inertia, which means they resist changes in motion more than lighter objects. Once they start moving, they tend to keep moving more easily.
-    
-    4. Air resistance: While air resistance does affect objects moving downhill, its effect is relatively smaller on heavier objects compared to lighter ones, as the ratio of air resistance to mass is lower for heavier objects.
-    
-    As a result of these factors, heavier objects typically accelerate faster and reach higher speeds when traveling downhill compared to lighter objects of similar shape and size.
-    
-    It's important to note that in a vacuum (where there's no air resistance), all objects would fall at the same rate regardless of their mass. However, in real-world conditions with air resistance and friction, heavier objects generally move faster downhill.
-    Time taken: 0.35 seconds
+    Query 4: Why do heavier objects travel downhill faster?
+    Response: Heavier objects travel downhill faster primarily due to the force of gravity acting on them. Gravity accelerates all objects at the same rate, but heavier objects may encounter less air resistance relative to their weight, allowing them to maintain higher speeds as they descend. Additionally, factors such as surface friction and the distribution of mass can influence the speed at which an object travels downhill.
+    Time taken: 0.60 seconds
 
 
-By following these steps, you’ll have a fully functional semantic search engine that leverages the strengths of Couchbase and Claude(by Anthropic). This guide is designed not just to show you how to build the system, but also to explain why each step is necessary, giving you a deeper understanding of the principles behind semantic search and how to implement it effectively. Whether you’re a newcomer to software development or an experienced developer looking to expand your skills, this guide will provide you with the knowledge and tools you need to create a powerful, AI-driven search engine.
+By following these steps, you'll have a fully functional semantic search engine that leverages the strengths of Couchbase and AzureOpenAI. This guide is designed not just to show you how to build the system, but also to explain why each step is necessary, giving you a deeper understanding of the principles behind semantic search and how to implement it effectively. Whether you're a newcomer to software development or an experienced developer looking to expand your skills, this guide will provide you with the knowledge and tools you need to create a powerful, AI-driven search engine.
